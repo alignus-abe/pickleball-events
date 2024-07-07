@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pickleball Crossing Detector</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        #crossing-button {
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            border: none;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <button id="crossing-button">Waiting for ball</button>
+
+    <script>
+        const button = document.getElementById('crossing-button');
+        const ws = new WebSocket('ws://localhost:8765');
+
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            if (data.direction === 'left_to_right') {
+                button.style.backgroundColor = '#4CAF50';
+                button.textContent = 'Left to Right';
+            } else if (data.direction === 'right_to_left') {
+                button.style.backgroundColor = '#2196F3';
+                button.textContent = 'Right to Left';
+            }
+            
+            setTimeout(() => {
+                button.style.backgroundColor = '#f0f0f0';
+                button.textContent = 'Waiting for ball';
+            }, 2000);
+        };
+
+        ws.onerror = function(error) {
+            console.error('WebSocket error:', error);
+        };
+
+        ws.onclose = function() {
+            console.log('WebSocket connection closed');
+            button.textContent = 'Connection closed';
+            button.style.backgroundColor = '#f44336';
+        };
+    </script>
+</body>
+</html>

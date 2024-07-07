@@ -1,3 +1,4 @@
 inference
 supervision
 opencv-python
+websockets
