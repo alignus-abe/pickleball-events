@@ -1,11 +1,10 @@
 # Pickleball Events
 
-This repository contains a Python-based project for processing pickleball events.
+This repository contains a Python-based project for processing pickleball events and tracking ball movements.
 
 ## Prerequisites
 
 - Python 3.11.8
-- Video file named `pickleball.mp4` in the project directory
 
 ## Setup
 
@@ -34,22 +33,42 @@ This repository contains a Python-based project for processing pickleball events
    pip install -r requirements.txt
    ```
 
+## Configuration
+
+The project uses a `config.json` file to store various settings. You can modify this file to adjust the model parameters and the rectangle coordinates for ball crossing detection.
+
 ## Usage
 
-1. Ensure you have a video file named `pickleball.mp4` in the project directory.
+Run the main script with the desired video source:
 
-2. Run the main script:
-   ```
-   python run.py
-   ```
+- For the default webcam:
+  ```
+  python run.py
+  ```
+
+- For a specific webcam (e.g., the second one):
+  ```
+  python run.py --source 1
+  ```
+
+- For a video file:
+  ```
+  python run.py --source path/to/your/video.mp4
+  ```
 
 ## Output
 
-The script will process the video and provide output based on the pickleball events detected.
+The script will process the video input and:
+1. Display the video feed with bounding boxes around detected balls
+2. Show a red rectangle indicating the crossing boundaries
+3. Print messages when the ball crosses the specified boundaries
+
+Press 'q' to quit the application.
 
 ## Troubleshooting
 
 If you encounter any issues, make sure:
 - You're using Python 3.11.8
 - All requirements are correctly installed
-- The video file is named correctly and in the right location
+- The `config.json` file is present and correctly formatted
+- You have the necessary permissions to access the webcam or video file
