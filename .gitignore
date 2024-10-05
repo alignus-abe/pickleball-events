@@ -6,6 +6,10 @@ __pycache__/
 # Videos
 pickleball.mp4
 
+# Hakuna Matata
+.DS_Store
+add-on/
+
 # C extensions
 *.so
 
