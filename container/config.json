@@ -1,0 +1,12 @@
+{
+    "model": {
+        "id": "pickleball-vision/1",
+        "api_key": "NaHUxOSMxQUvgg9tfhcE"
+    },
+    "rectangle": {
+        "left": 1050,
+        "right": 1140,
+        "top": 0,
+        "bottom": 1080
+    }
+}
