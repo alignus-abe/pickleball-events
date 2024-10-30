@@ -3,6 +3,8 @@ from inference import get_model
 import supervision as sv
 import cv2
 from config import load_config
+import requests
+import datetime
 
 def get_video_source(source):
     if source.isdigit():
@@ -33,6 +35,8 @@ def main(video_source: str):
     bounding_box_annotator = sv.BoundingBoxAnnotator()
     label_annotator = sv.LabelAnnotator()
 
+    WEBHOOK_URL = config['webhook']['url']
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -51,11 +55,25 @@ def main(video_source: str):
 
             if prev_ball_x is not None:
                 if prev_ball_x < RECT_LEFT < ball_x and not crossed_left_to_right:
-                    print("Ball crossed from left to right")
+                    try:
+                        requests.post(WEBHOOK_URL, json={
+                            "event": "cross",
+                            "direction": "left_to_right",
+                            "timestamp": str(datetime.datetime.now())
+                        })
+                    except requests.exceptions.RequestException as e:
+                        print(f"Failed to send webhook: {e}")
                     crossed_left_to_right = True
                     crossed_right_to_left = False
                 elif prev_ball_x > RECT_RIGHT > ball_x and not crossed_right_to_left:
-                    print("Ball crossed from right to left")
+                    try:
+                        requests.post(WEBHOOK_URL, json={
+                            "event": "cross",
+                            "direction": "right_to_left",
+                            "timestamp": str(datetime.datetime.now())
+                        })
+                    except requests.exceptions.RequestException as e:
+                        print(f"Failed to send webhook: {e}")
                     crossed_right_to_left = True
                     crossed_left_to_right = False
 

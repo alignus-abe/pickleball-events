@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ball Crossing Events</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #events {
+            margin-top: 20px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            height: 400px;
+            overflow-y: auto;
+        }
+        .event {
+            padding: 10px;
+            margin: 5px 0;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Ball Crossing Events</h1>
+    <div id="events"></div>
+
+    <script>
+        const eventsDiv = document.getElementById('events');
+        const eventSource = new EventSource('/events');
+
+        eventSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            
+            // Ignore keepalive messages
+            if (data.keepalive) return;
+
+            const eventElement = document.createElement('div');
+            eventElement.className = 'event';
+            eventElement.innerHTML = `
+                <strong>Event:</strong> ${data.event}<br>
+                <strong>Direction:</strong> ${data.direction}<br>
+                <strong>Timestamp:</strong> ${data.timestamp}
+            `;
+            eventsDiv.insertBefore(eventElement, eventsDiv.firstChild);
+        };
+    </script>
+</body>
+</html> 

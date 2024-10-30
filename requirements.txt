@@ -1,3 +1,5 @@
 opencv-python==4.8.0.76
 inference==0.16.0
 supervision==0.21.0
+requests==2.31.0
+flask==3.0.3
