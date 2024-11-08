@@ -61,6 +61,10 @@ def main(video_source: str, recording_path: str = None):
 
         results = model.infer(frame)[0]
         detections = sv.Detections.from_inference(results)
+        
+        # Filter for ball detections only
+        mask = detections.class_id == 2  # 2 is the ball class_id
+        detections = detections[mask]
 
         annotated_frame = bounding_box_annotator.annotate(scene=frame.copy(), detections=detections)
         annotated_frame = label_annotator.annotate(scene=annotated_frame, detections=detections)
