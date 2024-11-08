@@ -81,14 +81,23 @@ Key configurations:
      python run.py --source 1
      ```
 
-   - For video file:
+   - For video file with recording enabled:
      ```bash
-     python run.py --source path/to/your/video.mp4
+     python run.py --source path/to/your/video.mp4 --recording_path /path/to/save/recordings
      ```
 
 3. Open your web browser and navigate to:
    ```
    http://localhost:5000
+   ```
+
+4. Control sleep/wake state:
+   ```bash
+   # Put the system to sleep
+   python control.py sleep
+
+   # Wake the system
+   python control.py wake
    ```
 
 ## Features
@@ -98,6 +107,7 @@ The application provides:
    - Ball detection with bounding boxes
    - Visual crossing boundaries
    - Direction tracking
+   - Auto-sleep after 5 minutes of inactivity
 
 2. Web Interface:
    - Live event display
@@ -109,6 +119,12 @@ The application provides:
    - Left-to-right crossing detection
    - Right-to-left crossing detection
    - Real-time event notifications
+   - Automatic video recording of events (10-minute clips)
+
+4. Power Management:
+   - Automatic sleep mode after 5 minutes without ball detection
+   - Manual sleep/wake control
+   - Energy-efficient operation
 
 ## Output
 
@@ -160,6 +176,7 @@ General Checks:
 pickleball-events/
 ├── run.py              # Main video processing script
 ├── server.py           # Web server for events
+├── control.py          # Sleep/wake control script
 ├── config.py           # Configuration handler
 ├── config.json         # Settings file
 ├── requirements.txt    # Dependencies
