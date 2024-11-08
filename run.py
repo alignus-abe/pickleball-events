@@ -8,11 +8,32 @@ import datetime
 import os
 from pathlib import Path
 import time
+import json
+from datetime import timedelta
 
 def get_video_source(source):
     if source.isdigit():
         return int(source)
     return source
+
+def create_control_file():
+    control_file = Path("/tmp/pickleball_control.json")
+    if not control_file.exists():
+        with open(control_file, "w") as f:
+            json.dump({"active": True, "last_ball_detection": None}, f)
+    return control_file
+
+def update_control_state(control_file, active=None, last_detection=None):
+    with open(control_file, "r") as f:
+        state = json.load(f)
+    
+    if active is not None:
+        state["active"] = active
+    if last_detection is not None:
+        state["last_ball_detection"] = last_detection
+    
+    with open(control_file, "w") as f:
+        json.dump(state, f)
 
 def main(video_source: str, recording_path: str = None):
     config = load_config()
@@ -54,7 +75,31 @@ def main(video_source: str, recording_path: str = None):
     last_recording_end_time = None
     out = None
 
+    control_file = create_control_file()
+    last_active_check = time.time()
+    SLEEP_AFTER_MINUTES = 5  # Sleep after 5 minutes of no ball detection
+
     while True:
+        # Check control file every second
+        if time.time() - last_active_check >= 1:
+            with open(control_file, "r") as f:
+                state = json.load(f)
+            
+            if not state["active"]:
+                time.sleep(1)  # Sleep to reduce CPU usage
+                last_active_check = time.time()
+                continue
+            
+            # Check for auto-sleep if no ball detected
+            if state["last_ball_detection"]:
+                last_detection = datetime.fromisoformat(state["last_ball_detection"])
+                if datetime.now() - last_detection > timedelta(minutes=SLEEP_AFTER_MINUTES):
+                    update_control_state(control_file, active=False)
+                    print(f"No ball detected for {SLEEP_AFTER_MINUTES} minutes, entering sleep mode")
+                    continue
+            
+            last_active_check = time.time()
+
         ret, frame = cap.read()
         if not ret:
             break
