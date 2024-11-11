@@ -67,8 +67,6 @@ def main(video_source: str, recording_path: str = None):
     bounding_box_annotator = sv.BoundingBoxAnnotator()
     label_annotator = sv.LabelAnnotator()
 
-    WEBHOOK_URL = config['webhook']['url']
-
     # Add recording variables
     is_recording = False
     recording_start_time = None
@@ -121,25 +119,31 @@ def main(video_source: str, recording_path: str = None):
 
             if prev_ball_x is not None:
                 if prev_ball_x < RECT_LEFT < ball_x and not crossed_left_to_right:
-                    try:
-                        requests.post(WEBHOOK_URL, json={
-                            "event": "cross",
-                            "direction": "left_to_right",
-                            "timestamp": str(datetime.datetime.now())
-                        })
-                    except requests.exceptions.RequestException as e:
-                        print(f"Failed to send webhook: {e}")
+                    # Send webhook to all URLs
+                    webhook_data = {
+                        "event": "cross",
+                        "direction": "left_to_right",
+                        "timestamp": str(datetime.datetime.now())
+                    }
+                    for webhook_url in config['webhook']['urls']:
+                        try:
+                            requests.post(webhook_url, json=webhook_data)
+                        except requests.exceptions.RequestException as e:
+                            print(f"Failed to send webhook to {webhook_url}: {e}")
                     crossed_left_to_right = True
                     crossed_right_to_left = False
                 elif prev_ball_x > RECT_RIGHT > ball_x and not crossed_right_to_left:
-                    try:
-                        requests.post(WEBHOOK_URL, json={
-                            "event": "cross",
-                            "direction": "right_to_left",
-                            "timestamp": str(datetime.datetime.now())
-                        })
-                    except requests.exceptions.RequestException as e:
-                        print(f"Failed to send webhook: {e}")
+                    # Send webhook to all URLs
+                    webhook_data = {
+                        "event": "cross",
+                        "direction": "right_to_left",
+                        "timestamp": str(datetime.datetime.now())
+                    }
+                    for webhook_url in config['webhook']['urls']:
+                        try:
+                            requests.post(webhook_url, json=webhook_data)
+                        except requests.exceptions.RequestException as e:
+                            print(f"Failed to send webhook to {webhook_url}: {e}")
                     crossed_right_to_left = True
                     crossed_left_to_right = False
 

@@ -10,6 +10,9 @@
         "bottom": 1080
     },
     "webhook": {
-        "url": "http://localhost:5000/webhook"
+        "urls": [
+            "http://localhost:5000/webhook",
+            "http://localhost:5001/webhook"
+        ]
     }
 }
