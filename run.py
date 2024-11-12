@@ -11,6 +11,7 @@ import json
 from datetime import timedelta
 import os
 from typing import Dict, Any
+from utils.sound import play_sound
 
 warnings.filterwarnings('ignore', message='Specified provider.*')
 os.environ['QT_QPA_PLATFORM'] = 'xcb'
@@ -97,6 +98,24 @@ def main(video_source: str, recording_path: str = None):
     static_dir = Path('static')
     static_dir.mkdir(exist_ok=True)
 
+    # After camera acquisition and first frame
+    if cap.isOpened():
+        ret, frame = cap.read()
+        if ret:
+            play_sound("initiate")
+            webhook_data = {
+                "event": "status",
+                "message": "Camera Acquired",
+                "timestamp": str(datetime.datetime.now())
+            }
+            for webhook_url in config['webhook']['urls']:
+                try:
+                    requests.post(webhook_url, json=webhook_data)
+                except requests.exceptions.RequestException as e:
+                    print(f"Failed to send webhook to {webhook_url}: {e}")
+
+    first_ball_detected = False
+
     while True:
         # Check control file every second
         if time.time() - last_active_check >= 1:
@@ -169,6 +188,20 @@ def main(video_source: str, recording_path: str = None):
 
             prev_ball_x = ball_x
 
+            if not first_ball_detected:
+                play_sound("activated")
+                webhook_data = {
+                    "event": "status",
+                    "message": "ball detected",
+                    "timestamp": str(datetime.datetime.now())
+                }
+                for webhook_url in config['webhook']['urls']:
+                    try:
+                        requests.post(webhook_url, json=webhook_data)
+                    except requests.exceptions.RequestException as e:
+                        print(f"Failed to send webhook to {webhook_url}: {e}")
+                first_ball_detected = True
+
         if recording_path and out is None and (
             (prev_ball_x < RECT_LEFT < ball_x and not crossed_left_to_right) or 
             (prev_ball_x > RECT_RIGHT > ball_x and not crossed_right_to_left)
@@ -220,6 +253,19 @@ def main(video_source: str, recording_path: str = None):
         
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+
+    # Shutdown handling
+    play_sound("terminated")
+    webhook_data = {
+        "event": "status",
+        "message": "Server shutting down",
+        "timestamp": str(datetime.datetime.now())
+    }
+    for webhook_url in config['webhook']['urls']:
+        try:
+            requests.post(webhook_url, json=webhook_data)
+        except requests.exceptions.RequestException as e:
+            print(f"Failed to send webhook to {webhook_url}: {e}")
 
     # Cleanup
     if out is not None:

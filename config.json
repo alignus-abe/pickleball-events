@@ -14,5 +14,6 @@
             "http://localhost:5000/webhook",
             "http://localhost:5001/webhook"
         ]
-    }
+    },
+    "sound_sleep_states": true
 }
