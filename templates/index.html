@@ -22,10 +22,22 @@
             background-color: #f0f0f0;
             border-radius: 4px;
         }
+        #camera-view {
+            margin: 20px 0;
+        }
+        #current-view {
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
     <h1>Ball Crossing Events</h1>
+    <div id="camera-view">
+        <h2>Current View</h2>
+        <img id="current-view" src="/static/current-view.png" alt="Current camera view" style="max-width: 100%;" 
+             onerror="this.src='/static/current-view.png'">
+    </div>
     <div id="events"></div>
 
     <script>
@@ -47,6 +59,14 @@
             `;
             eventsDiv.insertBefore(eventElement, eventsDiv.firstChild);
         };
+
+        function refreshImage() {
+            const img = document.getElementById('current-view');
+            img.src = '/static/current-view.png?t=' + new Date().getTime();
+        }
+        
+        // Refresh image every 3 seconds
+        setInterval(refreshImage, 3000);
     </script>
 </body>
 </html> 

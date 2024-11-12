@@ -1,3 +1,4 @@
+import warnings
 import argparse
 from inference import get_model
 import supervision as sv
@@ -10,6 +11,10 @@ from pathlib import Path
 import time
 import json
 from datetime import timedelta
+import os
+
+warnings.filterwarnings('ignore', message='Specified provider.*')
+os.environ['QT_QPA_PLATFORM'] = 'xcb'
 
 def get_video_source(source):
     if source.isdigit():
@@ -75,7 +80,12 @@ def main(video_source: str, recording_path: str = None):
 
     control_file = create_control_file()
     last_active_check = time.time()
+    last_frame_save = time.time()
     SLEEP_AFTER_MINUTES = 5  # Sleep after 5 minutes of no ball detection
+
+    # Create static folder at start of main
+    static_dir = Path('static')
+    static_dir.mkdir(exist_ok=True)
 
     while True:
         # Check control file every second
@@ -184,6 +194,17 @@ def main(video_source: str, recording_path: str = None):
                 is_recording = False
                 last_recording_end_time = time.time()
                 print("Finished recording")
+
+        current_time = time.time()
+        
+        # Save frame every 3 seconds - moved after frame is processed
+        if current_time - last_frame_save >= 3:
+            try:
+                output_path = static_dir / 'current-view.png'
+                cv2.imwrite(str(output_path), annotated_frame)
+                last_frame_save = current_time
+            except Exception as e:
+                print(f"Error saving frame: {e}")
 
         cv2.imshow('Pickleball Tracking', annotated_frame)
         
