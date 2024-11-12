@@ -1,8 +1,6 @@
 from flask import Flask, render_template, Response, request, send_from_directory
 import json
 import queue
-import datetime
-import os
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 event_queue = queue.Queue()

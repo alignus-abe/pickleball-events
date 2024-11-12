@@ -3,15 +3,14 @@ import argparse
 from inference import get_model
 import supervision as sv
 import cv2
-from config import load_config
 import requests
 import datetime
-import os
 from pathlib import Path
 import time
 import json
 from datetime import timedelta
 import os
+from typing import Dict, Any
 
 warnings.filterwarnings('ignore', message='Specified provider.*')
 os.environ['QT_QPA_PLATFORM'] = 'xcb'
@@ -39,6 +38,17 @@ def update_control_state(control_file, active=None, last_detection=None):
     
     with open(control_file, "w") as f:
         json.dump(state, f)
+
+def load_config(config_path: str = 'config.json') -> Dict[str, Any]:
+    try:
+        config_file = Path(config_path)
+        if not config_file.exists():
+            raise FileNotFoundError(f"Config file not found at {config_path}")
+            
+        with open(config_file, 'r') as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        raise ValueError(f"Invalid JSON format in config file: {config_path}")
 
 def main(video_source: str, recording_path: str = None):
     config = load_config()
