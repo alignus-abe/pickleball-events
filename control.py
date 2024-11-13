@@ -5,6 +5,7 @@ from pathlib import Path
 import datetime
 import requests
 from utils.sound import play_sound
+import time
 
 def main():
     parser = argparse.ArgumentParser(description="Control Pickleball Detection Service")
@@ -48,6 +49,7 @@ def main():
     if config.get('sound_sleep_states', False):
         print(f"Playing sleep/wake sound (sound_sleep_states is enabled)")
         play_sound("drone")
+        time.sleep(1)
     else:
         print(f"Not playing sound (sound_sleep_states is {config.get('sound_sleep_states', False)})")
     
