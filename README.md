@@ -7,6 +7,7 @@ This repository contains a Python-based project for processing pickleball events
 - Python 3.11.8
 - Modern web browser with SSE (Server-Sent Events) support
 - Webcam or video file for input
+- Audio output device for sound notifications
 
 ## Setup
 
@@ -35,6 +36,17 @@ This repository contains a Python-based project for processing pickleball events
    pip install -r requirements.txt
    ```
 
+4. Create required directories:
+   ```bash
+   mkdir -p static sounds
+   ```
+
+5. Add .wav sound files to the `sounds` directory:
+   - `initiate.wav`: System startup
+   - `activated.wav`: First ball detection
+   - `terminated.wav`: System shutdown
+   - `drone.wav`: Sleep/wake transitions
+
 ## Configuration
 
 The project uses a `config.json` file to store settings:
@@ -52,21 +64,33 @@ The project uses a `config.json` file to store settings:
         "bottom": 1080
     },
     "webhook": {
-        "url": "http://localhost:5000/webhook"
-    }
+        "urls": [
+            "http://localhost:5000/webhook",
+            "http://localhost:5001/webhook"
+        ]
+    },
+    "sound_sleep_states": true
 }
 ```
 
 Key configurations:
 - `model`: AI model credentials
 - `rectangle`: Boundary coordinates for ball crossing detection
-- `webhook`: Event notification endpoint
+- `webhook.urls`: Event notification endpoints
+- `sound_sleep_states`: Enable/disable sleep/wake sound notifications
 
 ## Usage
 
-1. First, start the web server:
+1. Start all required servers (in separate terminals):
    ```bash
+   # Main web server
    python server.py
+
+   # Secondary web server
+   python server2.py
+
+   # Sound server
+   python sound_server.py
    ```
 
 2. In a new terminal, run the main script:
@@ -126,6 +150,32 @@ The application provides:
    - Manual sleep/wake control
    - Energy-efficient operation
 
+5. Sound Notifications:
+   - System state changes (startup/shutdown)
+   - Sleep/wake transitions
+   - Ball detection events
+   - Multiple simultaneous sounds support
+   - REST API for sound control
+
+## Sound System
+
+### Sound Server API
+- List available sounds:
+  ```bash
+  curl http://localhost:5002/sounds
+  ```
+
+- Play a sound:
+  ```bash
+  curl -X POST http://localhost:5002/play/sound_name
+  ```
+
+### Automatic Sound Events
+- System startup: plays `initiate.wav`
+- First ball detection: plays `activated.wav`
+- System shutdown: plays `terminated.wav`
+- Sleep/wake transitions: plays `drone.wav` (if enabled in config)
+
 ## Output
 
 The system provides multiple outputs:
@@ -165,6 +215,13 @@ Common Issues:
    - Check model credentials
    - Confirm webhook URL is correct
 
+4. Sound Issues:
+   - Verify sound files exist in `sounds/` directory
+   - Check audio device connections
+   - Ensure pygame mixer is initialized
+   - Verify port 5002 is available for sound server
+   - Check sound permissions on Linux systems
+
 General Checks:
 - Using Python 3.11.8
 - All requirements installed
@@ -175,11 +232,15 @@ General Checks:
 ```
 pickleball-events/
 ├── run.py              # Main video processing script
-├── server.py           # Web server for events
+├── server.py           # Primary web server
+├── server2.py          # Secondary web server
+├── sound_server.py     # Sound management server
 ├── control.py          # Sleep/wake control script
 ├── config.py           # Configuration handler
 ├── config.json         # Settings file
 ├── requirements.txt    # Dependencies
+├── static/            # Generated images
+├── sounds/            # Sound files (.wav)
 └── templates/          # Web interface templates
     └── index.html     # Main web page
 ```
@@ -235,7 +296,9 @@ This project includes an automated deployment script for Ubuntu 22.04 systems (l
 
 3. Service Configuration:
    - Creates systemd services for:
-     - Web server (pickleball-server.service)
+     - Primary web server (pickleball-server.service)
+     - Secondary web server (pickleball-server2.service)
+     - Sound server (pickleball-sound.service)
      - Main application (pickleball-main.service)
    - Enables automatic startup on boot
 
