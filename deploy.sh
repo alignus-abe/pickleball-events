@@ -164,6 +164,51 @@ verify_installation() {
     check_status "Web server check"
 }
 
+# Function to install and configure Samba
+setup_samba() {
+    print_status "Setting up Samba..."
+    
+    # Install Samba
+    sudo apt install -y samba
+    check_status "Samba installation"
+    
+    # Backup original config
+    sudo cp /etc/samba/smb.conf /etc/samba/smb.conf.backup
+    
+    # Create new Samba configuration
+    sudo tee /etc/samba/smb.conf << EOF
+[global]
+   workgroup = WORKGROUP
+   server string = Pickleball Server
+   security = user
+   map to guest = bad user
+   dns proxy = no
+
+[root]
+   path = /
+   browseable = yes
+   writable = yes
+   guest ok = no
+   read only = no
+   create mask = 0755
+   directory mask = 0755
+   force user = root
+EOF
+    
+    # Set Samba password for current user
+    print_status "Setting up Samba user password..."
+    sudo smbpasswd -a $USER
+    
+    # Restart Samba service
+    sudo systemctl restart smbd
+    sudo systemctl restart nmbd
+    
+    # Configure firewall for Samba
+    sudo ufw allow samba
+    
+    check_status "Samba configuration"
+}
+
 # Main installation process
 main() {
     print_status "Starting installation..."
@@ -171,6 +216,7 @@ main() {
     install_system_deps
     install_python
     setup_ssh
+    setup_samba
     setup_project
     create_service
     verify_installation
@@ -178,6 +224,8 @@ main() {
     print_status "Installation complete! Services are running."
     print_status "Web interface available at: http://localhost:5000"
     print_status "SSH access enabled"
+    print_status "Samba share available at: \\\\$(hostname)\\root"
+    print_status "Use your Ubuntu username and Samba password to connect"
 }
 
 # Run main function

@@ -262,6 +262,7 @@ This project includes an automated deployment script for Ubuntu 22.04 systems (l
 - User with sudo privileges
 - Internet connection
 - USB webcam or video source
+- Network access for remote file sharing (Samba)
 
 ### Using the Deployment Script
 
@@ -287,6 +288,7 @@ This project includes an automated deployment script for Ubuntu 22.04 systems (l
    - Installs system dependencies
    - Configures SSH access
    - Sets up Python 3.11
+   - Installs and configures Samba file sharing
 
 2. Project Installation:
    - Clones the repository
@@ -313,6 +315,47 @@ After successful deployment:
 1. Web interface is available at: `http://localhost:5000`
 2. Services auto-start on system boot
 3. SSH access is enabled for remote management
+4. Samba share is available at: `\\hostname\root`
+   - Use your Ubuntu username and Samba password to connect
+   - Provides full system access through network file sharing
+   - Supported on Windows, macOS, and Linux clients
+
+### Accessing Samba Share
+
+1. Windows:
+   ```bash
+   # In File Explorer address bar:
+   \\hostname\root
+   ```
+
+2. macOS:
+   ```bash
+   # In Finder, press Cmd+K and enter:
+   smb://hostname/root
+   ```
+
+3. Linux:
+   ```bash
+   # Using file manager address bar:
+   smb://hostname/root
+   
+   # Or mount using terminal:
+   sudo mount -t cifs //hostname/root /mnt/point -o username=your_username
+   ```
+
+Replace `hostname` with your server's IP address or hostname.
+
+### Samba Security Notes
+
+1. Authentication:
+   - Requires separate Samba password (set during installation)
+   - No guest access allowed
+   - Uses standard file permissions
+
+2. Network Security:
+   - Firewall automatically configured for Samba
+   - Standard ports (139, 445) opened
+   - Limited to local network by default
 
 ### Service Management
 
