@@ -64,8 +64,8 @@ def main(video_source: str, recording_path: str = None):
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
     # Create named window with specific size
-    cv2.namedWindow('Pickleball Tracking', cv2.WINDOW_NORMAL)
-    cv2.resizeWindow('Pickleball Tracking', 960, 540)  # Half of 1920x1080
+#    cv2.namedWindow('Pickleball Tracking', cv2.WINDOW_NORMAL)
+#    cv2.resizeWindow('Pickleball Tracking', 960, 540)  # Half of 1920x1080
 
     if not cap.isOpened():
         print(f"Error: Could not open video source {video_source}")
@@ -249,7 +249,7 @@ def main(video_source: str, recording_path: str = None):
             except Exception as e:
                 print(f"Error saving frame: {e}")
 
-        cv2.imshow('Pickleball Tracking', annotated_frame)
+#        cv2.imshow('Pickleball Tracking', annotated_frame)
         
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
