@@ -95,6 +95,49 @@ setup_project() {
     check_status "Python dependencies installation"
 }
 
+# Function to configure audio
+setup_audio() {
+    print_status "Setting up audio..."
+    
+    # Install ALSA utilities
+    sudo apt install -y alsa-utils
+    check_status "ALSA utilities installation"
+    
+    # Load sound modules
+    sudo modprobe snd-hda-intel
+    sudo modprobe snd-pcm
+    sudo modprobe snd-mixer-oss
+    sudo modprobe snd-seq
+    
+    # Make modules load on boot
+    echo "snd-hda-intel" | sudo tee -a /etc/modules
+    echo "snd-pcm" | sudo tee -a /etc/modules
+    echo "snd-mixer-oss" | sudo tee -a /etc/modules
+    echo "snd-seq" | sudo tee -a /etc/modules
+    
+    # Configure ALSA
+    sudo tee /etc/asound.conf << EOF
+pcm.!default {
+    type hw
+    card PCH
+    device 0
+}
+
+ctl.!default {
+    type hw
+    card PCH
+}
+EOF
+    
+    sudo usermod -a -G audio,video $USER
+    
+    # Restart ALSA
+    sudo alsactl kill quit
+    sudo alsa force-reload
+    
+    check_status "Audio configuration"
+}
+
 # Function to create systemd service
 create_service() {
     print_status "Creating systemd service..."
@@ -126,9 +169,16 @@ After=pickleball-server.service
 [Service]
 Type=simple
 User=$USER
+SupplementaryGroups=audio video
 WorkingDirectory=$(pwd)
 Environment="PATH=$(pwd)/venv/bin"
 Environment="DISPLAY=:0"
+Environment=ALSA_PCM_CARD=PCH
+Environment=ALSA_PCM_DEVICE=0
+Environment=SDL_AUDIODRIVER=alsa
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=PULSE_SERVER=/run/user/1000/pulse/native
+Environment="XAUTHORITY=/home/$USER/.Xauthority"
 ExecStart=$(pwd)/venv/bin/python run.py
 Restart=always
 
@@ -217,6 +267,7 @@ main() {
     install_python
     setup_ssh
     setup_samba
+    setup_audio
     setup_project
     create_service
     verify_installation
