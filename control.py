@@ -39,11 +39,10 @@ def main():
         "timestamp": str(datetime.datetime.now())
     }
     
-    for webhook_url in config['webhook']['urls']:
-        try:
-            requests.post(webhook_url, json=webhook_data)
-        except requests.exceptions.RequestException as e:
-            print(f"Failed to send webhook to {webhook_url}: {e}")
+    try:
+        requests.post(config['webhook_url'], json=webhook_data)
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send webhook to {config['webhook_url']}: {e}")
 
     # Play sound if enabled
     if config.get('sound_sleep_states', False):

@@ -53,7 +53,6 @@ def load_config(config_path: str = 'config.json') -> Dict[str, Any]:
 
 def main(video_source: str, recording_path: str = None):
     config = load_config()
-
     model = get_model(model_id=config['model']['id'], api_key=config['model']['api_key'])
 
     video_source = get_video_source(video_source)
@@ -137,9 +136,7 @@ def main(video_source: str, recording_path: str = None):
 
         results = model.infer(frame)[0]
         detections = sv.Detections.from_inference(results)
-        
-        # Filter for ball detections only
-        mask = detections.class_id == 2  # 2 is the ball class_id
+        mask = detections.class_id == 2
         detections = detections[mask]
 
         annotated_frame = bounding_box_annotator.annotate(scene=frame.copy(), detections=detections)
@@ -237,8 +234,6 @@ def main(video_source: str, recording_path: str = None):
                 last_frame_save = current_time
             except Exception as e:
                 print(f"Error saving frame: {e}")
-
-#        cv2.imshow('Pickleball Tracking', annotated_frame)
         
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
