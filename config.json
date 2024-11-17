@@ -9,11 +9,6 @@
         "top": 0,
         "bottom": 1080
     },
-    "webhook": {
-        "urls": [
-            "http://localhost:5000/webhook",
-            "http://localhost:5001/webhook"
-        ]
-    },
+    "webhook_url": "http://localhost:5000/webhook",
     "sound_sleep_states": true
 }

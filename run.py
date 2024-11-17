@@ -59,13 +59,8 @@ def main(video_source: str, recording_path: str = None):
     video_source = get_video_source(video_source)
     cap = cv2.VideoCapture(video_source)
 
-    # Set camera resolution to 1920x1080
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-
-    # Create named window with specific size
-#    cv2.namedWindow('Pickleball Tracking', cv2.WINDOW_NORMAL)
-#    cv2.resizeWindow('Pickleball Tracking', 960, 540)  # Half of 1920x1080
 
     if not cap.isOpened():
         print(f"Error: Could not open video source {video_source}")
@@ -108,11 +103,10 @@ def main(video_source: str, recording_path: str = None):
                 "message": "Camera Acquired",
                 "timestamp": str(datetime.datetime.now())
             }
-            for webhook_url in config['webhook']['urls']:
-                try:
-                    requests.post(webhook_url, json=webhook_data)
-                except requests.exceptions.RequestException as e:
-                    print(f"Failed to send webhook to {webhook_url}: {e}")
+            try:
+                requests.post(config['webhook_url'], json=webhook_data)
+            except requests.exceptions.RequestException as e:
+                print(f"Failed to send webhook to {config['webhook_url']}: {e}")
 
     first_ball_detected = False
 
@@ -158,31 +152,27 @@ def main(video_source: str, recording_path: str = None):
 
             if prev_ball_x is not None:
                 if prev_ball_x < RECT_LEFT < ball_x and not crossed_left_to_right:
-                    # Send webhook to all URLs
                     webhook_data = {
                         "event": "cross",
                         "direction": "left_to_right",
                         "timestamp": str(datetime.datetime.now())
                     }
-                    for webhook_url in config['webhook']['urls']:
-                        try:
-                            requests.post(webhook_url, json=webhook_data)
-                        except requests.exceptions.RequestException as e:
-                            print(f"Failed to send webhook to {webhook_url}: {e}")
+                    try:
+                        requests.post(config['webhook_url'], json=webhook_data)
+                    except requests.exceptions.RequestException as e:
+                        print(f"Failed to send webhook to {config['webhook_url']}: {e}")
                     crossed_left_to_right = True
                     crossed_right_to_left = False
                 elif prev_ball_x > RECT_RIGHT > ball_x and not crossed_right_to_left:
-                    # Send webhook to all URLs
                     webhook_data = {
                         "event": "cross",
                         "direction": "right_to_left",
                         "timestamp": str(datetime.datetime.now())
                     }
-                    for webhook_url in config['webhook']['urls']:
-                        try:
-                            requests.post(webhook_url, json=webhook_data)
-                        except requests.exceptions.RequestException as e:
-                            print(f"Failed to send webhook to {webhook_url}: {e}")
+                    try:
+                        requests.post(config['webhook_url'], json=webhook_data)
+                    except requests.exceptions.RequestException as e:
+                        print(f"Failed to send webhook to {config['webhook_url']}: {e}")
                     crossed_right_to_left = True
                     crossed_left_to_right = False
 
@@ -195,11 +185,10 @@ def main(video_source: str, recording_path: str = None):
                     "message": "ball detected",
                     "timestamp": str(datetime.datetime.now())
                 }
-                for webhook_url in config['webhook']['urls']:
-                    try:
-                        requests.post(webhook_url, json=webhook_data)
-                    except requests.exceptions.RequestException as e:
-                        print(f"Failed to send webhook to {webhook_url}: {e}")
+                try:
+                    requests.post(config['webhook_url'], json=webhook_data)
+                except requests.exceptions.RequestException as e:
+                    print(f"Failed to send webhook to {config['webhook_url']}: {e}")
                 first_ball_detected = True
 
         if recording_path and out is None and (
@@ -261,11 +250,10 @@ def main(video_source: str, recording_path: str = None):
         "message": "Server shutting down",
         "timestamp": str(datetime.datetime.now())
     }
-    for webhook_url in config['webhook']['urls']:
-        try:
-            requests.post(webhook_url, json=webhook_data)
-        except requests.exceptions.RequestException as e:
-            print(f"Failed to send webhook to {webhook_url}: {e}")
+    try:
+        requests.post(config['webhook_url'], json=webhook_data)
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send webhook to {config['webhook_url']}: {e}")
 
     # Cleanup
     if out is not None:
