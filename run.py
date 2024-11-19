@@ -11,7 +11,6 @@ import json
 from datetime import timedelta
 import os
 from typing import Dict, Any
-from utils.sound import play_sound
 
 warnings.filterwarnings('ignore', message='Specified provider.*')
 os.environ['QT_QPA_PLATFORM'] = 'xcb'
@@ -96,7 +95,6 @@ def main(video_source: str, recording_path: str = None):
     if cap.isOpened():
         ret, frame = cap.read()
         if ret:
-            play_sound("initiate")
             webhook_data = {
                 "event": "status",
                 "message": "Camera Acquired",
@@ -176,7 +174,6 @@ def main(video_source: str, recording_path: str = None):
             prev_ball_x = ball_x
 
             if not first_ball_detected:
-                play_sound("activated")
                 webhook_data = {
                     "event": "status",
                     "message": "ball detected",
@@ -239,7 +236,6 @@ def main(video_source: str, recording_path: str = None):
             break
 
     # Shutdown handling
-    play_sound("terminated")
     webhook_data = {
         "event": "status",
         "message": "Server shutting down",

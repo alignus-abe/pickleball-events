@@ -95,49 +95,6 @@ setup_project() {
     check_status "Python dependencies installation"
 }
 
-# Function to configure audio
-setup_audio() {
-    print_status "Setting up audio..."
-    
-    # Install ALSA utilities
-    sudo apt install -y alsa-utils
-    check_status "ALSA utilities installation"
-    
-    # Load sound modules
-    sudo modprobe snd-hda-intel
-    sudo modprobe snd-pcm
-    sudo modprobe snd-mixer-oss
-    sudo modprobe snd-seq
-    
-    # Make modules load on boot
-    echo "snd-hda-intel" | sudo tee -a /etc/modules
-    echo "snd-pcm" | sudo tee -a /etc/modules
-    echo "snd-mixer-oss" | sudo tee -a /etc/modules
-    echo "snd-seq" | sudo tee -a /etc/modules
-    
-    # Configure ALSA
-    sudo tee /etc/asound.conf << EOF
-pcm.!default {
-    type hw
-    card PCH
-    device 0
-}
-
-ctl.!default {
-    type hw
-    card PCH
-}
-EOF
-    
-    sudo usermod -a -G audio,video $USER
-    
-    # Restart ALSA
-    sudo alsactl kill quit
-    sudo alsa force-reload
-    
-    check_status "Audio configuration"
-}
-
 # Function to create systemd service
 create_service() {
     print_status "Creating systemd service..."
@@ -267,7 +224,6 @@ main() {
     install_python
     setup_ssh
     setup_samba
-    setup_audio
     setup_project
     create_service
     verify_installation

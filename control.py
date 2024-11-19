@@ -4,7 +4,6 @@ import argparse
 from pathlib import Path
 import datetime
 import requests
-from utils.sound import play_sound
 import time
 
 def main():
@@ -43,14 +42,6 @@ def main():
         requests.post(config['webhook_url'], json=webhook_data)
     except requests.exceptions.RequestException as e:
         print(f"Failed to send webhook to {config['webhook_url']}: {e}")
-
-    # Play sound if enabled
-    if config.get('sound_sleep_states', False):
-        print(f"Playing sleep/wake sound (sound_sleep_states is enabled)")
-        play_sound("drone")
-        time.sleep(1)
-    else:
-        print(f"Not playing sound (sound_sleep_states is {config.get('sound_sleep_states', False)})")
     
     with open(control_file, "w") as f:
         json.dump(state, f)
