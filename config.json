@@ -9,7 +9,11 @@
         "top": 0,
         "bottom": 1080
     },
+    "video_source": "0",
     "webhook": {
-        "ports": [5001, 5002]
-    }
+        "BALL_CROSSED": "http://court0.home:8321/api/webhook/ballcrossed",
+        "CAMERA_ACQUIRED": "http://court0.home:8321/api/webhook/activated",
+        "default": "http://court0.home:8321/api/webhook/ballcrossed"
+    },
+    "server_port": 8080
 }

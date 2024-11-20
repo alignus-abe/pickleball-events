@@ -98,45 +98,22 @@ setup_project() {
 # Function to create systemd service
 create_service() {
     print_status "Creating systemd service..."
-    
-    # Create service file for the web server
-    sudo tee /etc/systemd/system/pickleball-server.service << EOF
+
+    # Create service file for main application
+    sudo tee /etc/systemd/system/pickleball-main.service << EOF
 [Unit]
-Description=Pickleball Events Web Server
+Description=Pickleball Events Main Application
 After=network.target
 
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$(pwd)
-Environment="PATH=$(pwd)/venv/bin"
-ExecStart=$(pwd)/venv/bin/python server.py
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    # Create service file for the main application
-    sudo tee /etc/systemd/system/pickleball-main.service << EOF
-[Unit]
-Description=Pickleball Events Main Application
-After=pickleball-server.service
-
-[Service]
-Type=simple
-User=$USER
-SupplementaryGroups=audio video
+SupplementaryGroups=video
 WorkingDirectory=$(pwd)
 Environment="PATH=$(pwd)/venv/bin"
 Environment="DISPLAY=:0"
-Environment=ALSA_PCM_CARD=PCH
-Environment=ALSA_PCM_DEVICE=0
-Environment=SDL_AUDIODRIVER=alsa
 Environment=XDG_RUNTIME_DIR=/run/user/1000
-Environment=PULSE_SERVER=/run/user/1000/pulse/native
-Environment="XAUTHORITY=/home/$USER/.Xauthority"
-ExecStart=$(pwd)/venv/bin/python run.py
+ExecStart=$(pwd)/venv/bin/python main.py
 Restart=always
 
 [Install]
@@ -144,10 +121,9 @@ WantedBy=multi-user.target
 EOF
 
     # Enable and start services
+    sudo ufw allow 8080
     sudo systemctl daemon-reload
-    sudo systemctl enable pickleball-server.service
     sudo systemctl enable pickleball-main.service
-    sudo systemctl start pickleball-server.service
     sudo systemctl start pickleball-main.service
     
     check_status "Service creation"
@@ -162,12 +138,11 @@ verify_installation() {
     check_status "Python version check"
     
     # Check if services are running
-    sudo systemctl status pickleball-server.service
     sudo systemctl status pickleball-main.service
     check_status "Service status check"
     
     # Check if web server is responding
-    curl -s http://localhost:5000 > /dev/null
+    curl -s http://localhost:8080 > /dev/null
     check_status "Web server check"
 }
 
@@ -186,7 +161,7 @@ setup_samba() {
     sudo tee /etc/samba/smb.conf << EOF
 [global]
    workgroup = WORKGROUP
-   server string = Pickleball Server
+   server string = Pickleball Vision
    security = user
    map to guest = bad user
    dns proxy = no
