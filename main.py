@@ -218,10 +218,6 @@ def main(video_source="0"):
     if not cap.isOpened():
         raise RuntimeError(f"Failed to open video source: {video_source}")
     
-    video_thread = threading.Thread(target=process_video)
-    video_thread.daemon = True
-    video_thread.start()
-    
     server_threads = []
     webhook_ports = config.get('webhook', {}).get('ports', [5001])
     
@@ -231,6 +227,13 @@ def main(video_source="0"):
         server_threads.append(server_thread)
         server_thread.start()
         print(f"Started server on port {port}")
+    
+    # Add a small delay to ensure servers are ready
+    time.sleep(2)
+    
+    video_thread = threading.Thread(target=process_video)
+    video_thread.daemon = True
+    video_thread.start()
     
     try:
         while True:

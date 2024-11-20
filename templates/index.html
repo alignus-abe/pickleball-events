@@ -35,8 +35,8 @@
     <h1>Pickleball Vision</h1>
     <div id="camera-view">
         <h2>Current View</h2>
-        <img id="current-view" src="/static/current-view.png" alt="Current camera view" style="max-width: 100%;" 
-             onerror="this.src='/static/current-view.png'">
+        <img id="current-view" src="/static/current-view.png" alt="Current camera view" style="max-width: 100%;">
+        <button onclick="saveCurrentView()">Save Current View</button>
     </div>
     <div id="events"></div>
 
@@ -55,39 +55,22 @@
             eventElement.innerHTML = `
                 <strong>Event:</strong> ${data.event}<br>
                 <strong>Message:</strong> ${data.message}<br>
-                <strong>Direction:</strong> ${data.direction}<br>
+                ${data.direction ? `<strong>Direction:</strong> ${data.direction}<br>` : ''}
                 <strong>Timestamp:</strong> ${data.timestamp}
             `;
             eventsDiv.insertBefore(eventElement, eventsDiv.firstChild);
         };
 
-        function refreshImage() {
-            const img = document.getElementById('current-view');
-            img.src = '/static/current-view.png?t=' + new Date().getTime();
-        }
-
         function saveCurrentView() {
             fetch('/save-current-view')
                 .then(response => {
                     if (response.ok) {
-                        refreshImage();
+                        const img = document.getElementById('current-view');
+                        img.src = '/static/current-view.png?t=' + new Date().getTime();
                     }
                 })
                 .catch(error => console.error('Error saving view:', error));
         }
-
-        // Add button to manually save view
-        document.addEventListener('DOMContentLoaded', function() {
-            const controlsDiv = document.createElement('div');
-            controlsDiv.style.margin = '20px 0';
-            
-            const saveButton = document.createElement('button');
-            saveButton.textContent = 'Save Current View';
-            saveButton.onclick = saveCurrentView;
-            
-            controlsDiv.appendChild(saveButton);
-            document.querySelector('#camera-view').appendChild(controlsDiv);
-        });
     </script>
 </body>
 </html> 
