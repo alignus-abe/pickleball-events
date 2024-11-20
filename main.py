@@ -113,9 +113,12 @@ def webhook():
     event_queue.put(data)
     return "", 200
 
-@app.route('/static/current-view.png')
+@app.route('/current-view.png')
 def serve_current_view():
-    return send_from_directory(app.static_folder, 'current-view.png')
+    try:
+        return send_from_directory(app.static_folder, 'current-view.png')
+    except FileNotFoundError:
+        return "Image not found", 404
 
 @app.route('/control/<command>')
 def control(command):
@@ -124,6 +127,30 @@ def control(command):
     
     update_control_state(active=(command == 'wake'))
     return "Command executed successfully", 200
+
+@app.route('/save-current-view')
+def save_current_view():
+    global cap
+    if not cap:
+        return "Camera not initialized", 500
+        
+    ret, frame = cap.read()
+    if not ret:
+        return "Failed to capture frame", 500
+        
+    try:
+        # Resize to 400px width while maintaining aspect ratio
+        height, width = frame.shape[:2]
+        new_width = 400
+        new_height = int(height * (new_width / width))
+        resized_frame = cv2.resize(frame, (new_width, new_height))
+        
+        # Compress and save
+        output_path = Path(app.static_folder) / 'current-view.png'
+        cv2.imwrite(str(output_path), resized_frame, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+        return "Frame saved successfully", 200
+    except Exception as e:
+        return f"Error saving frame: {e}", 500
 
 def process_video(recording_path=None):
     global cap, model, config
@@ -152,6 +179,21 @@ def process_video(recording_path=None):
 
     send_event("SYSTEM_START")
     send_event("CAMERA_ACQUIRED")
+
+    # Initial frame capture
+    ret, frame = cap.read()
+    if ret:
+        try:
+            # Resize to 400px width while maintaining aspect ratio
+            height, width = frame.shape[:2]
+            new_width = 400
+            new_height = int(height * (new_width / width))
+            resized_frame = cv2.resize(frame, (new_width, new_height))
+            
+            output_path = Path(app.static_folder) / 'current-view.png'
+            cv2.imwrite(str(output_path), resized_frame, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+        except Exception as e:
+            print(f"Error saving initial frame: {e}")
 
     while True:
         # Check control file every second
@@ -242,16 +284,6 @@ def process_video(recording_path=None):
                 is_recording = False
                 last_recording_end_time = time.time()
                 print("Finished recording")
-
-        # Save frame every 3 seconds
-        current_time = time.time()
-        if current_time - last_frame_save >= 3:
-            try:
-                output_path = static_dir / 'current-view.png'
-                cv2.imwrite(str(output_path), annotated_frame)
-                last_frame_save = current_time
-            except Exception as e:
-                print(f"Error saving frame: {e}")
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Ball Crossing Events</title>
+    <title>Pickleball Vision</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -32,7 +32,7 @@
     </style>
 </head>
 <body>
-    <h1>Ball Crossing Events</h1>
+    <h1>Pickleball Vision</h1>
     <div id="camera-view">
         <h2>Current View</h2>
         <img id="current-view" src="/static/current-view.png" alt="Current camera view" style="max-width: 100%;" 
@@ -65,9 +65,29 @@
             const img = document.getElementById('current-view');
             img.src = '/static/current-view.png?t=' + new Date().getTime();
         }
-        
-        // Refresh image every 3 seconds
-        setInterval(refreshImage, 3000);
+
+        function saveCurrentView() {
+            fetch('/save-current-view')
+                .then(response => {
+                    if (response.ok) {
+                        refreshImage();
+                    }
+                })
+                .catch(error => console.error('Error saving view:', error));
+        }
+
+        // Add button to manually save view
+        document.addEventListener('DOMContentLoaded', function() {
+            const controlsDiv = document.createElement('div');
+            controlsDiv.style.margin = '20px 0';
+            
+            const saveButton = document.createElement('button');
+            saveButton.textContent = 'Save Current View';
+            saveButton.onclick = saveCurrentView;
+            
+            controlsDiv.appendChild(saveButton);
+            document.querySelector('#camera-view').appendChild(controlsDiv);
+        });
     </script>
 </body>
 </html> 
