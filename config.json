@@ -9,6 +9,7 @@
         "top": 0,
         "bottom": 1080
     },
-    "webhook_url": "http://localhost:5000/webhook",
-    "sound_sleep_states": true
+    "webhook": {
+        "ports": [5001, 5002]
+    }
 }

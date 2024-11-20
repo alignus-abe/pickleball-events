@@ -26,6 +26,17 @@ cap = None
 model = None
 SLEEP_AFTER_MINUTES = 5
 
+VALID_EVENTS = {
+    "SYSTEM_START": "SYSTEM STARTED",
+    "CAMERA_ACQUIRED": "CAMERA ACQUIRED",
+    "FIRST_BALL": "BALL DETECTED",
+    "SLEEP": "PUT TO SLEEP",
+    "WAKE": "WOKE UP FROM SLEEP",
+    "CROSS_LTR": "BALL CROSSED LEFT TO RIGHT",
+    "CROSS_RTL": "BALL CROSSED RIGHT TO LEFT",
+    "SYSTEM_STOP": "SYSTEM TERMINATED"
+}
+
 def load_config(config_path: str = 'config.json') -> Dict[str, Any]:
     try:
         config_file = Path(config_path)
@@ -49,11 +60,35 @@ def update_control_state(active=None, last_detection=None):
     
     if active is not None:
         state["active"] = active
+        send_event("WAKE" if active else "SLEEP")
+    
     if last_detection is not None:
         state["last_ball_detection"] = last_detection
     
     with open(control_file, "w") as f:
         json.dump(state, f)
+
+def send_event(event_type: str, direction: str = None):
+    if event_type not in VALID_EVENTS:
+        return
+        
+    event_data = {
+        "event": "STATUS" if event_type in ["SYSTEM_START", "CAMERA_ACQUIRED", "FIRST_BALL", "SLEEP", "WAKE", "SYSTEM_STOP"] else "BALL CROSSED",
+        "message": VALID_EVENTS[event_type],
+        "direction": direction,
+        "timestamp": str(datetime.now())
+    }
+    
+    if not direction:
+        event_data.pop("direction")
+    
+    event_queue.put(event_data)
+    
+    try:
+        webhook_url = f"http://localhost:{config['webhook']['ports'][0]}/webhook"
+        requests.post(webhook_url, json=event_data)
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send webhook: {e}")
 
 # Flask routes
 @app.route('/')
@@ -88,18 +123,6 @@ def control(command):
         return "Invalid command", 400
     
     update_control_state(active=(command == 'wake'))
-    
-    webhook_data = {
-        "event": "status",
-        "message": "sleeping" if command == "sleep" else "waking",
-        "timestamp": str(datetime.now())
-    }
-    
-    try:
-        requests.post(config['webhook_url'], json=webhook_data)
-    except requests.exceptions.RequestException as e:
-        return f"Failed to send webhook: {e}", 500
-    
     return "Command executed successfully", 200
 
 def process_video(recording_path=None):
@@ -127,19 +150,8 @@ def process_video(recording_path=None):
     last_active_check = time.time()
     last_frame_save = time.time()
 
-    # Create static folder
-    static_dir = Path('static')
-    static_dir.mkdir(exist_ok=True)
-
-    webhook_data = {
-        "event": "status",
-        "message": "Camera Acquired",
-        "timestamp": str(datetime.now())
-    }
-    try:
-        requests.post(config['webhook_url'], json=webhook_data)
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to send webhook to {config['webhook_url']}: {e}")
+    send_event("SYSTEM_START")
+    send_event("CAMERA_ACQUIRED")
 
     while True:
         # Check control file every second
@@ -168,7 +180,7 @@ def process_video(recording_path=None):
 
         results = model.infer(frame)[0]
         detections = sv.Detections.from_inference(results)
-        mask = detections.class_id == 2  # Ball class ID
+        mask = detections.class_id == 2
         detections = detections[mask]
         
         annotated_frame = bounding_box_annotator.annotate(scene=frame.copy(), detections=detections)
@@ -181,43 +193,19 @@ def process_video(recording_path=None):
 
             if prev_ball_x is not None:
                 if prev_ball_x < RECT_LEFT < ball_x and not crossed_left_to_right:
-                    webhook_data = {
-                        "event": "cross",
-                        "direction": "left_to_right",
-                        "timestamp": str(datetime.now())
-                    }
-                    try:
-                        requests.post(config['webhook_url'], json=webhook_data)
-                    except requests.exceptions.RequestException as e:
-                        print(f"Failed to send webhook to {config['webhook_url']}: {e}")
+                    send_event("CROSS_LTR", "LEFT TO RIGHT")
                     crossed_left_to_right = True
                     crossed_right_to_left = False
 
                 elif prev_ball_x > RECT_RIGHT > ball_x and not crossed_right_to_left:
-                    webhook_data = {
-                        "event": "cross",
-                        "direction": "right_to_left",
-                        "timestamp": str(datetime.now())
-                    }
-                    try:
-                        requests.post(config['webhook_url'], json=webhook_data)
-                    except requests.exceptions.RequestException as e:
-                        print(f"Failed to send webhook to {config['webhook_url']}: {e}")
+                    send_event("CROSS_RTL", "RIGHT TO LEFT")
                     crossed_right_to_left = True
                     crossed_left_to_right = False
 
             prev_ball_x = ball_x
 
             if not first_ball_detected:
-                webhook_data = {
-                    "event": "status",
-                    "message": "ball detected",
-                    "timestamp": str(datetime.now())
-                }
-                try:
-                    requests.post(config['webhook_url'], json=webhook_data)
-                except requests.exceptions.RequestException as e:
-                    print(f"Failed to send webhook to {config['webhook_url']}: {e}")
+                send_event("FIRST_BALL")
                 first_ball_detected = True
 
             # Recording logic
@@ -268,34 +256,29 @@ def process_video(recording_path=None):
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     
-    webhook_data = {
-        "event": "status",
-        "message": "Server shutting down",
-        "timestamp": str(datetime.datetime.now())
-    }
-    try:
-        requests.post(config['webhook_url'], json=webhook_data)
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to send webhook to {config['webhook_url']}: {e}")
+    send_event("SYSTEM_STOP")
 
     if out is not None:
         out.release()
     cap.release()
     cv2.destroyAllWindows()
 
+def start_flask_server(port: int):
+    try:
+        app.run(host='0.0.0.0', port=port)
+    except Exception as e:
+        print(f"Failed to start server on port {port}: {e}")
+
 def main(video_source="0", recording_path=None):
     os.environ['QT_QPA_PLATFORM'] = 'xcb'
     
     global cap, model, config
     
-    # Initialize configuration
     config = load_config()
     
-    # Create static directory
     static_dir = Path('static')
     static_dir.mkdir(exist_ok=True)
     
-    # Create control file
     create_control_file()
     
     # Initialize model and video capture
@@ -315,8 +298,23 @@ def main(video_source="0", recording_path=None):
     video_thread.daemon = True
     video_thread.start()
     
-    # Start Flask app
-    app.run(host='0.0.0.0', port=5001)
+    # Start Flask servers for each configured port
+    server_threads = []
+    webhook_ports = config.get('webhook', {}).get('ports', [5001])
+    
+    for port in webhook_ports:
+        server_thread = threading.Thread(target=start_flask_server, args=(port,))
+        server_thread.daemon = True
+        server_threads.append(server_thread)
+        server_thread.start()
+        print(f"Started server on port {port}")
+    
+    # Keep main thread alive
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Shutting down servers...")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pickleball Vision Service")
