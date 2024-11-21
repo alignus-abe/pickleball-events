@@ -3,12 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Videos
-test.mp4
+# Recordings
+recordings/
 
 # Hakuna Matata
 .DS_Store
-add-on/
 
 # C extensions
 *.so
