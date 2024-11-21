@@ -129,35 +129,54 @@ def save_current_view():
 
 def release_camera():
     global cap
-    if cap is not None:
-        cap.release()
+    try:
+        if cap is not None:
+            if cap.isOpened():
+                cap.release()
+            cap = None
+        cv2.destroyAllWindows()
+    except Exception as e:
+        print(f"Error during camera release: {e}")
         cap = None
 
 def initialize_camera():
-    global cap, camera_source
-    try:
-        if cap is not None:
-            cap.release()
-        
-        cap = cv2.VideoCapture(camera_source)
-        
-        # Add timeout for device initialization
-        timeout = time.time() + 5  # 5 second timeout
-        while not cap.isOpened():
-            if time.time() > timeout:
-                raise RuntimeError("Camera initialization timeout")
-            time.sleep(0.1)
+    global cap, video_source
+
+    # First ensure any existing camera is properly released
+    release_camera()
+
+    max_retries = 3
+    retry_delay = 1  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            cap = cv2.VideoCapture(video_source)
+            if not cap.isOpened():
+                if attempt < max_retries - 1:
+                    print(f"Camera not available, attempt {attempt + 1}/{max_retries}. Retrying...")
+                    time.sleep(retry_delay)
+                    continue
+                raise RuntimeError("Camera not available after maximum retry attempts")
+
+            # Configure camera settings
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
             
-        # Set camera properties
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-        
-        return True
-    except Exception as e:
-        if cap is not None:
-            cap.release()
+            # Verify camera is working by reading a test frame
+            ret, test_frame = cap.read()
+            if not ret:
+                raise RuntimeError("Camera opened but failed to read test frame")
+
+            print("Camera initialized successfully.")
+            return True
+
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"Failed to initialize camera (attempt {attempt + 1}/{max_retries}): {e}")
+                time.sleep(retry_delay)
+                continue
             cap = None
-        raise RuntimeError(f"Failed to initialize camera: {str(e)}")
+            raise RuntimeError(f"Failed to initialize camera after {max_retries} attempts: {e}")
 
 def process_video():
     global cap, model, config, camera_sleeping, recording
@@ -193,24 +212,10 @@ def process_video():
 
     while True:
         if camera_sleeping:
-            # Still process events but don't capture video
-            time.sleep(0.1)  # Reduced sleep time for better responsiveness
-            
-            # Keep event processing active
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-                
-            # Check if we should wake up
-            if not camera_sleeping:
-                try:
-                    initialize_camera()
-                except RuntimeError as e:
-                    print(f"Failed to initialize camera on wake: {e}")
-                    time.sleep(1)
-                    continue
+            time.sleep(0.1)
             continue
-
-        if cap is None:
+        
+        if cap is None or not cap.isOpened():
             try:
                 initialize_camera()
             except RuntimeError as e:
@@ -268,9 +273,7 @@ def process_video():
             break
 
     send_event("SYSTEM_STOP")
-
-    cap.release()
-    cv2.destroyAllWindows()
+    release_camera()
 
 def start_flask_server(port: int):
     try:
@@ -279,13 +282,12 @@ def start_flask_server(port: int):
         print(f"Failed to start server on port {port}: {e}")
 
 def main():
-    global config, cap, model, camera_source
+    global config, cap, model, video_source
 
     os.environ['QT_QPA_PLATFORM'] = 'xcb'
 
     # Load configuration first
     config = load_config()
-    camera_source = config['video_source']
 
     static_dir = Path('static')
     static_dir.mkdir(exist_ok=True)
@@ -447,15 +449,20 @@ def wake_timeout(duration_minutes):
             wake_timer.cancel()
             wake_timer = None
 
-@app.route('/wake-camera/')
-@app.route('/wake-camera/<int:num_minutes>')
+@app.route('/wake-camera', methods=['GET'])
+@app.route('/wake-camera/<int:num_minutes>', methods=['GET'])
 def wake_camera(num_minutes=None):
     global camera_sleeping, wake_timer, last_ball_detection
     
     try:
+        # First attempt to initialize the camera
+        try:
+            initialize_camera()
+        except RuntimeError as e:
+            return {"status": "error", "message": f"Failed to wake camera: {str(e)}"}, 500
+            
         camera_sleeping = False
         last_ball_detection = None  # Reset ball detection timer
-        initialize_camera()
         
         if wake_timer:
             wake_timer.cancel()

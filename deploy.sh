@@ -36,6 +36,7 @@ install_system_deps() {
 
     # Install required system packages
     sudo apt install -y \
+        v4l-utils \
         git \
         build-essential \
         libgl1-mesa-glx \
