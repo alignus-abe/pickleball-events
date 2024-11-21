@@ -1,4 +1,4 @@
-from flask import Flask, render_template, Response, request, send_from_directory
+from flask import Flask, render_template, Response, request, send_from_directory, jsonify
 import json
 import queue
 import threading
@@ -14,6 +14,7 @@ import warnings
 import os
 import argparse
 from typing import Dict, Any
+from collections import deque
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 event_queue = queue.Queue()
@@ -22,12 +23,14 @@ frame_queue = queue.Queue(maxsize=1000)  # Frame queue for recording
 VALID_EVENTS = {
     "SYSTEM_START": "SYSTEM STARTED",
     "CAMERA_ACQUIRED": "CAMERA ACQUIRED",
-    "FIRST_BALL": "BALL DETECTED",
+    "FIRST_BALL": "FIRST BALL DETECTED",
     "SLEEP": "PUT TO SLEEP",
     "WAKE": "WOKE UP FROM SLEEP",
     "CROSS_LTR": "BALL CROSSED LEFT TO RIGHT",
     "CROSS_RTL": "BALL CROSSED RIGHT TO LEFT",
-    "SYSTEM_STOP": "SYSTEM TERMINATED"
+    "SYSTEM_STOP": "SYSTEM STOPPED",
+    "CURRENT_VIEW_SAVED": "SAVED CURRENT VIEW",
+    "RECORDING_STARTED": "RECORDING STARTED"
 }
 
 # Initialize global variables
@@ -39,6 +42,9 @@ recording_thread = None
 camera_sleeping = False
 wake_timer = None
 last_ball_detection = None
+
+# Initialize in-memory event list with a maximum of 500 events
+event_list = deque(maxlen=500)
 
 def load_config(config_path: str = 'config.json') -> Dict[str, Any]:
     try:
@@ -56,7 +62,7 @@ def send_event(event_type: str, direction: str = None):
         return
         
     event_data = {
-        "event": "STATUS" if event_type in ["SYSTEM_START", "CAMERA_ACQUIRED", "FIRST_BALL", "SLEEP", "WAKE", "SYSTEM_STOP"] else "BALL_CROSSED",
+        "event": "STATUS" if event_type in ["SYSTEM_START", "CAMERA_ACQUIRED", "FIRST_BALL", "SLEEP", "WAKE", "SYSTEM_STOP", "CURRENT_VIEW_SAVED", "RECORDING_STARTED"] else "BALL CROSSED",
         "message": VALID_EVENTS[event_type],
         "direction": direction,
         "timestamp": str(datetime.now())
@@ -66,7 +72,7 @@ def send_event(event_type: str, direction: str = None):
         event_data.pop("direction")
 
     event_queue.put(event_data)
-    
+    event_list.append(event_data)
     # if event_type in config['webhook']:
     #     webhook_url = config['webhook'][event_type]
     # else:
@@ -97,6 +103,7 @@ def events():
 def webhook():
     data = request.json
     event_queue.put(data)
+    event_list.append(data)
     return "", 200
 
 @app.route('/current-view.png')
@@ -123,6 +130,7 @@ def save_current_view():
         resized_frame = cv2.resize(frame, (new_width, new_height))
         output_path = Path(app.static_folder) / 'current-view.png'
         cv2.imwrite(str(output_path), resized_frame, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+        send_event("CURRENT_VIEW_SAVED")
         return "Frame saved successfully", 200
     except Exception as e:
         return f"Error saving frame: {e}", 500
@@ -275,6 +283,10 @@ def process_video():
     send_event("SYSTEM_STOP")
     release_camera()
 
+@app.route('/get-events', methods=['GET'])
+def get_events():
+    return jsonify(list(event_list)), 200
+
 def start_flask_server(port: int):
     try:
         app.run(host='0.0.0.0', port=port)
@@ -372,6 +384,7 @@ def record_video(duration_minutes):
         if elapsed_time < expected_time:
             time.sleep(expected_time - elapsed_time)  # Ensure recording duration matches
 
+        send_event("RECORDING_STARTED")
         return output_path
 
     except Exception as e:
