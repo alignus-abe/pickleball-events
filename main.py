@@ -160,7 +160,7 @@ def initialize_camera():
         raise RuntimeError(f"Failed to initialize camera: {str(e)}")
 
 def process_video():
-    global cap, model, config, camera_sleeping
+    global cap, model, config, camera_sleeping, recording
 
     RECT_LEFT = config['rectangle']['left']
     RECT_RIGHT = config['rectangle']['right']
@@ -225,11 +225,12 @@ def process_video():
             time.sleep(1)
             continue
 
-        # Enqueue the frame for recording
-        try:
-            frame_queue.put(frame, timeout=1)
-        except queue.Full:
-            print("Frame queue is full. Dropping frame.")
+        # Enqueue the frame for recording only if recording is active
+        if recording:
+            try:
+                frame_queue.put(frame, timeout=1)
+            except queue.Full:
+                print("Frame queue is full. Dropping frame.")
 
         results = model.infer(frame)[0]
         detections = sv.Detections.from_inference(results)
@@ -345,19 +346,29 @@ def record_video(duration_minutes):
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
 
+        # Calculate expected number of frames
+        total_frames = fps * duration_minutes * 60
+
         # Initialize VideoWriter with 'mp4v' codec
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
 
-        end_time = datetime.now() + timedelta(minutes=duration_minutes)
+        frame_count = 0
+        start_time = time.time()
 
-        while recording and datetime.now() < end_time:
+        while recording and frame_count < total_frames:
             try:
                 frame = frame_queue.get(timeout=1)
                 out.write(frame)
+                frame_count += 1
             except queue.Empty:
                 print("No frames available for recording.")
                 continue
+
+        elapsed_time = time.time() - start_time
+        expected_time = duration_minutes * 60
+        if elapsed_time < expected_time:
+            time.sleep(expected_time - elapsed_time)  # Ensure recording duration matches
 
         return output_path
 
@@ -376,7 +387,7 @@ def record_video(duration_minutes):
 
 @app.route('/start-new-recording/<int:num_minutes>')
 def start_new_recording(num_minutes):
-    global recording_thread, cap
+    global recording_thread, cap, frame_queue
 
     if num_minutes <= 0:
         return {"status": "error", "message": "Recording duration must be positive"}, 400
@@ -386,6 +397,10 @@ def start_new_recording(num_minutes):
 
     try:
         stop_current_recording()
+
+        # Clear the frame_queue before starting a new recording
+        with frame_queue.mutex:
+            frame_queue.queue.clear()
 
         recording_thread = threading.Thread(
             target=record_video, 
