@@ -293,6 +293,14 @@ def start_flask_server(port: int):
     except Exception as e:
         print(f"Failed to start server on port {port}: {e}")
 
+@app.route('/recordings/<path:filename>')
+def serve_recording(filename):
+    recordings_dir = Path('recordings')
+    try:
+        return send_from_directory(recordings_dir, filename)
+    except FileNotFoundError:
+        return "Recording not found", 404
+
 def main():
     global config, cap, model, video_source
 
@@ -300,6 +308,9 @@ def main():
 
     # Load configuration first
     config = load_config()
+
+    recordings_dir = Path('recordings')
+    recordings_dir.mkdir(exist_ok=True)
 
     static_dir = Path('static')
     static_dir.mkdir(exist_ok=True)
