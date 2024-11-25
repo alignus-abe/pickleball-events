@@ -75,9 +75,47 @@ setup_ssh() {
     check_status "SSH setup"
 }
 
+# Function to cleanup existing installation
+cleanup_existing() {
+    print_status "Cleaning up existing installation..."
+    
+    if [ -d "pickleball-events" ]; then
+        rm -rf pickleball-events
+    fi
+    check_status "Cleanup"
+}
+
+# Function to install Python dependencies with retry
+install_python_deps() {
+    local max_attempts=3
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        print_status "Installing Python dependencies (Attempt $attempt of $max_attempts)..."
+        
+        # Increase timeout and retries for pip
+        pip install --upgrade pip
+        pip install --timeout 120 --retries 3 -r requirements.txt
+        
+        if [ $? -eq 0 ]; then
+            print_status "Python dependencies installation successful"
+            return 0
+        fi
+        
+        print_error "Attempt $attempt failed. Retrying..."
+        attempt=$((attempt + 1))
+        sleep 5
+    done
+    
+    print_error "Failed to install Python dependencies after $max_attempts attempts"
+    return 1
+}
+
 # Function to setup the project
 setup_project() {
     print_status "Setting up project..."
+    
+    cleanup_existing
     
     # Clone repository
     git clone https://github.com/fahnub/pickleball-events.git
@@ -90,9 +128,8 @@ setup_project() {
     source venv/bin/activate
     check_status "Virtual environment setup"
     
-    # Install Python dependencies
-    pip install --upgrade pip
-    pip install -r requirements.txt
+    # Install Python dependencies with retry logic
+    install_python_deps
     check_status "Python dependencies installation"
 }
 
