@@ -99,7 +99,7 @@ def events():
 
     return Response(event_stream(), mimetype='text/event-stream')
 
-@app.route('/webhook', methods=['POST'])
+@app.route('/webhook', methods=['POST']) # TODO: see if necessary
 def webhook():
     data = request.json
     event_queue.put(data)
@@ -370,6 +370,7 @@ def record_video(duration_minutes):
         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
+        print(f"FPS: {fps}") # TODO: check kiyo FPS
 
         # Calculate expected number of frames
         total_frames = fps * duration_minutes * 60
