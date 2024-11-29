@@ -18,7 +18,17 @@ from collections import deque
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 event_queue = queue.Queue()
-frame_queue = queue.Queue(maxsize=1000)  # Frame queue for recording
+event_list = deque(maxlen=500)
+frame_queue = queue.Queue(maxsize=1000)
+
+config = None
+cap = None
+model = None
+recording = False
+recording_thread = None
+camera_sleeping = False
+wake_timer = None
+last_ball_detection = None
 
 VALID_EVENTS = {
     "SYSTEM_START": "SYSTEM STARTED",
@@ -32,56 +42,6 @@ VALID_EVENTS = {
     "CURRENT_VIEW_SAVED": "SAVED CURRENT VIEW",
     "RECORDING_STARTED": "RECORDING STARTED"
 }
-
-# Initialize global variables
-config = None
-cap = None
-model = None
-recording = False
-recording_thread = None
-camera_sleeping = False
-wake_timer = None
-last_ball_detection = None
-
-# Initialize in-memory event list with a maximum of 500 events
-event_list = deque(maxlen=500)
-
-def load_config(config_path: str = 'config.json') -> Dict[str, Any]:
-    try:
-        config_file = Path(config_path)
-        if not config_file.exists():
-            raise FileNotFoundError(f"Config file not found at {config_path}")
-        
-        with open(config_file, 'r') as f:
-            return json.load(f)
-    except json.JSONDecodeError:
-        raise ValueError(f"Invalid JSON format in config file: {config_path}")
-
-def send_event(event_type: str, direction: str = None):
-    if event_type not in VALID_EVENTS:
-        return
-        
-    event_data = {
-        "event": "STATUS" if event_type in ["SYSTEM_START", "CAMERA_ACQUIRED", "FIRST_BALL", "SLEEP", "WAKE", "SYSTEM_STOP", "CURRENT_VIEW_SAVED", "RECORDING_STARTED"] else "BALL CROSSED",
-        "message": VALID_EVENTS[event_type],
-        "direction": direction,
-        "timestamp": str(datetime.now())
-    }
-
-    if not direction:
-        event_data.pop("direction")
-
-    event_queue.put(event_data)
-    event_list.append(event_data)
-    # if event_type in config['webhook']:
-    #     webhook_url = config['webhook'][event_type]
-    # else:
-    #     webhook_url = config['webhook']['default']
-
-    # try:
-    #     requests.post(webhook_url, json=event_data)
-    # except requests.exceptions.RequestException as e:
-    #     print(f"Failed to send webhook: {e}")
 
 @app.route('/')
 def index():
@@ -99,12 +59,9 @@ def events():
 
     return Response(event_stream(), mimetype='text/event-stream')
 
-@app.route('/webhook', methods=['POST']) # TODO: see if necessary
-def webhook():
-    data = request.json
-    event_queue.put(data)
-    event_list.append(data)
-    return "", 200
+@app.route('/get-events', methods=['GET'])
+def get_events():
+    return jsonify(list(event_list)), 200
 
 @app.route('/current-view.png')
 def serve_current_view():
@@ -135,27 +92,225 @@ def save_current_view():
     except Exception as e:
         return f"Error saving frame: {e}", 500
 
-def release_camera():
-    global cap
+@app.route('/recordings/<path:filename>')
+def serve_recording(filename):
+    recordings_dir = Path('recordings')
     try:
-        if cap is not None:
-            if cap.isOpened():
-                cap.release()
-            cap = None
-        cv2.destroyAllWindows()
+        return send_from_directory(recordings_dir, filename)
+    except FileNotFoundError:
+        return "Recording not found", 404
+
+@app.route('/start-new-recording/<int:num_minutes>')
+def start_new_recording(num_minutes):
+    global recording_thread, cap, frame_queue
+
+    if num_minutes <= 0:
+        return {"status": "error", "message": "Recording duration must be positive"}, 400
+
+    if cap is None or not cap.isOpened():
+        return {"status": "error", "message": "Camera not available"}, 500
+
+    try:
+        stop_current_recording()
+
+        # Clear the frame_queue before starting a new recording
+        with frame_queue.mutex:
+            frame_queue.queue.clear()
+
+        recording_thread = threading.Thread(
+            target=record_video, 
+            args=(num_minutes,),
+            daemon=True
+        )
+        recording_thread.start()
+
+        # Wait briefly to ensure recording starts
+        time.sleep(0.5)
+
+        return {"status": "success", "message": "Recording started"}, 200
     except Exception as e:
-        print(f"Error during camera release: {e}")
-        cap = None
+        return {"status": "error", "message": str(e)}, 500
+
+@app.route('/sleep-camera')
+def sleep_camera():
+    global camera_sleeping, wake_timer
+
+    try:
+        camera_sleeping = True
+        if wake_timer:
+            wake_timer.cancel()
+            wake_timer = None
+            
+        release_camera()
+        send_event("SLEEP")
+        return {"status": "success", "message": "Camera put to sleep"}, 200
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+@app.route('/wake-camera', methods=['GET'])
+@app.route('/wake-camera/<int:num_minutes>', methods=['GET'])
+def wake_camera(num_minutes=None):
+    global camera_sleeping, wake_timer, last_ball_detection
+    
+    try:
+        # First attempt to initialize the camera
+        try:
+            initialize_camera()
+        except RuntimeError as e:
+            return {"status": "error", "message": f"Failed to wake camera: {str(e)}"}, 500
+            
+        camera_sleeping = False
+        last_ball_detection = None  # Reset ball detection timer
+        
+        if wake_timer:
+            wake_timer.cancel()
+            wake_timer = None
+            
+        if num_minutes:
+            wake_timer = threading.Timer(
+                num_minutes * 60, 
+                wake_timeout, 
+                args=(num_minutes,)
+            )
+            wake_timer.start()
+            
+        send_event("WAKE")
+        return {
+            "status": "success", 
+            "message": f"Camera awakened{f' for {num_minutes} minutes' if num_minutes else ' indefinitely'}"
+        }, 200
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+def load_config(config_path: str = 'config.json') -> Dict[str, Any]:
+    try:
+        config_file = Path(config_path)
+        if not config_file.exists():
+            raise FileNotFoundError(f"Config file not found at {config_path}")
+        
+        with open(config_file, 'r') as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        raise ValueError(f"Invalid JSON format in config file: {config_path}")
+
+def start_flask_server(port: int):
+    try:
+        app.run(host='0.0.0.0', port=port)
+    except Exception as e:
+        print(f"Failed to start server on port {port}: {e}")
+
+def send_event(event_type: str, direction: str = None):
+    if event_type not in VALID_EVENTS:
+        return
+        
+    event_data = {
+        "event": "STATUS" if event_type in ["SYSTEM_START", "CAMERA_ACQUIRED", "FIRST_BALL", "SLEEP", "WAKE", "SYSTEM_STOP", "CURRENT_VIEW_SAVED", "RECORDING_STARTED"] else "BALL CROSSED",
+        "message": VALID_EVENTS[event_type],
+        "direction": direction,
+        "timestamp": str(datetime.now())
+    }
+
+    if not direction:
+        event_data.pop("direction")
+
+    event_queue.put(event_data)
+    event_list.append(event_data)
+
+    '''
+    if event_type in config['webhook']:
+        webhook_url = config['webhook'][event_type]
+    else:
+        webhook_url = config['webhook']['default']
+
+    try:
+        requests.post(webhook_url, json=event_data)
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to send webhook: {e}")
+    '''
+
+def record_video(duration_minutes):
+    global recording
+    recording = True
+    timestamp = datetime.now().strftime("%Y-%m-%d-%H%M-%S")
+    output_path = f"recordings/{timestamp}.mp4"
+    out = None
+
+    os.makedirs("recordings", exist_ok=True)
+
+    try:
+        if cap is None or not cap.isOpened():
+            raise RuntimeError("Main camera not available")
+
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        total_frames = fps * duration_minutes * 60
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
+
+        frame_count = 0
+        start_time = time.time()
+
+        while recording and frame_count < total_frames:
+            try:
+                frame = frame_queue.get(timeout=1)
+                out.write(frame)
+                frame_count += 1
+            except queue.Empty:
+                print("No frames available for recording.")
+                continue
+
+        elapsed_time = time.time() - start_time
+        expected_time = duration_minutes * 60
+        if elapsed_time < expected_time:
+            time.sleep(expected_time - elapsed_time)
+
+        send_event("RECORDING_STARTED")
+        return output_path
+
+    except Exception as e:
+        print(f"Recording error: {str(e)}")
+        recording = False
+        if out is not None:
+            out.release()
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        raise e
+    
+    finally:
+        recording = False
+        if out is not None:
+            out.release()
+
+def stop_current_recording():
+    global recording, recording_thread
+    if recording and recording_thread:
+        recording = False
+        recording_thread.join()
+        recording_thread = None
+
+def wake_timeout(duration_minutes):
+    global camera_sleeping, last_ball_detection
+    
+    if last_ball_detection is None or \
+       (datetime.now() - last_ball_detection).total_seconds() > duration_minutes * 60:
+        # No ball detected within the timeout period
+        camera_sleeping = True
+        send_event("SLEEP")
+    else:
+        # Ball was detected, cancel the timer and stay awake
+        global wake_timer
+        if wake_timer:
+            wake_timer.cancel()
+            wake_timer = None
 
 def initialize_camera():
     global cap, video_source
-
-    # First ensure any existing camera is properly released
     release_camera()
 
     max_retries = 3
-    retry_delay = 1  # seconds
-    
+    retry_delay = 1
+
     for attempt in range(max_retries):
         try:
             cap = cv2.VideoCapture(video_source)
@@ -185,6 +340,18 @@ def initialize_camera():
                 continue
             cap = None
             raise RuntimeError(f"Failed to initialize camera after {max_retries} attempts: {e}")
+
+def release_camera():
+    global cap
+    try:
+        if cap is not None:
+            if cap.isOpened():
+                cap.release()
+            cap = None
+        cv2.destroyAllWindows()
+    except Exception as e:
+        print(f"Error during camera release: {e}")
+        cap = None
 
 def process_video():
     global cap, model, config, camera_sleeping, recording
@@ -283,30 +450,11 @@ def process_video():
     send_event("SYSTEM_STOP")
     release_camera()
 
-@app.route('/get-events', methods=['GET'])
-def get_events():
-    return jsonify(list(event_list)), 200
-
-def start_flask_server(port: int):
-    try:
-        app.run(host='0.0.0.0', port=port)
-    except Exception as e:
-        print(f"Failed to start server on port {port}: {e}")
-
-@app.route('/recordings/<path:filename>')
-def serve_recording(filename):
-    recordings_dir = Path('recordings')
-    try:
-        return send_from_directory(recordings_dir, filename)
-    except FileNotFoundError:
-        return "Recording not found", 404
-
 def main():
     global config, cap, model, video_source
 
     os.environ['QT_QPA_PLATFORM'] = 'xcb'
 
-    # Load configuration first
     config = load_config()
 
     recordings_dir = Path('recordings')
@@ -345,169 +493,6 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         print("Shutting down servers...")
-
-def stop_current_recording():
-    global recording, recording_thread
-    if recording and recording_thread:
-        recording = False
-        recording_thread.join()
-        recording_thread = None
-
-def record_video(duration_minutes):
-    global recording
-    recording = True
-    timestamp = datetime.now().strftime("%Y-%m-%d-%H%M-%S")
-    output_path = f"recordings/{timestamp}.mp4"
-    out = None
-
-    os.makedirs("recordings", exist_ok=True)
-
-    try:
-        if cap is None or not cap.isOpened():
-            raise RuntimeError("Main camera not available")
-
-        # Get camera properties from existing capture
-        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
-        print(f"FPS: {fps}") # TODO: check kiyo FPS
-
-        # Calculate expected number of frames
-        total_frames = fps * duration_minutes * 60
-
-        # Initialize VideoWriter with 'mp4v' codec
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
-
-        frame_count = 0
-        start_time = time.time()
-
-        while recording and frame_count < total_frames:
-            try:
-                frame = frame_queue.get(timeout=1)
-                out.write(frame)
-                frame_count += 1
-            except queue.Empty:
-                print("No frames available for recording.")
-                continue
-
-        elapsed_time = time.time() - start_time
-        expected_time = duration_minutes * 60
-        if elapsed_time < expected_time:
-            time.sleep(expected_time - elapsed_time)  # Ensure recording duration matches
-
-        send_event("RECORDING_STARTED")
-        return output_path
-
-    except Exception as e:
-        print(f"Recording error: {str(e)}")
-        recording = False
-        if out is not None:
-            out.release()
-        if os.path.exists(output_path):
-            os.remove(output_path)
-        raise e
-    finally:
-        recording = False
-        if out is not None:
-            out.release()
-
-@app.route('/start-new-recording/<int:num_minutes>')
-def start_new_recording(num_minutes):
-    global recording_thread, cap, frame_queue
-
-    if num_minutes <= 0:
-        return {"status": "error", "message": "Recording duration must be positive"}, 400
-
-    if cap is None or not cap.isOpened():
-        return {"status": "error", "message": "Camera not available"}, 500
-
-    try:
-        stop_current_recording()
-
-        # Clear the frame_queue before starting a new recording
-        with frame_queue.mutex:
-            frame_queue.queue.clear()
-
-        recording_thread = threading.Thread(
-            target=record_video, 
-            args=(num_minutes,),
-            daemon=True
-        )
-        recording_thread.start()
-
-        # Wait briefly to ensure recording starts
-        time.sleep(0.5)
-
-        return {"status": "success", "message": "Recording started"}, 200
-    except Exception as e:
-        return {"status": "error", "message": str(e)}, 500
-
-@app.route('/sleep-camera')
-def sleep_camera():
-    global camera_sleeping, wake_timer
-
-    try:
-        camera_sleeping = True
-        if wake_timer:
-            wake_timer.cancel()
-            wake_timer = None
-            
-        release_camera()
-        send_event("SLEEP")
-        return {"status": "success", "message": "Camera put to sleep"}, 200
-    except Exception as e:
-        return {"status": "error", "message": str(e)}, 500
-
-def wake_timeout(duration_minutes):
-    global camera_sleeping, last_ball_detection
-    
-    if last_ball_detection is None or \
-       (datetime.now() - last_ball_detection).total_seconds() > duration_minutes * 60:
-        # No ball detected within the timeout period
-        camera_sleeping = True
-        send_event("SLEEP")
-    else:
-        # Ball was detected, cancel the timer and stay awake
-        global wake_timer
-        if wake_timer:
-            wake_timer.cancel()
-            wake_timer = None
-
-@app.route('/wake-camera', methods=['GET'])
-@app.route('/wake-camera/<int:num_minutes>', methods=['GET'])
-def wake_camera(num_minutes=None):
-    global camera_sleeping, wake_timer, last_ball_detection
-    
-    try:
-        # First attempt to initialize the camera
-        try:
-            initialize_camera()
-        except RuntimeError as e:
-            return {"status": "error", "message": f"Failed to wake camera: {str(e)}"}, 500
-            
-        camera_sleeping = False
-        last_ball_detection = None  # Reset ball detection timer
-        
-        if wake_timer:
-            wake_timer.cancel()
-            wake_timer = None
-            
-        if num_minutes:
-            wake_timer = threading.Timer(
-                num_minutes * 60, 
-                wake_timeout, 
-                args=(num_minutes,)
-            )
-            wake_timer.start()
-            
-        send_event("WAKE")
-        return {
-            "status": "success", 
-            "message": f"Camera awakened{f' for {num_minutes} minutes' if num_minutes else ' indefinitely'}"
-        }, 200
-    except Exception as e:
-        return {"status": "error", "message": str(e)}, 500
 
 if __name__ == "__main__":
     main()
