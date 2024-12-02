@@ -81,12 +81,37 @@ def save_current_view():
         return "Failed to capture frame", 500
         
     try:
-        height, width = frame.shape[:2]
+        # Resize frame first
         new_width = 400
+        height, width = frame.shape[:2]
         new_height = int(height * (new_width / width))
         resized_frame = cv2.resize(frame, (new_width, new_height))
+        
+        # Dynamically calculate rectangle position based on resized frame
+        rect_width = 40
+        rect_height = 230
+        rect_left = (new_width - rect_width) // 2
+        rect_top = (new_height - rect_height) // 2
+        rect_right = rect_left + rect_width
+        rect_bottom = rect_top + rect_height
+
+        # Annotate resized frame for display
+        annotated_frame = resized_frame.copy()
+        cv2.rectangle(annotated_frame, (rect_left, rect_top), (rect_right, rect_bottom), (0, 0, 255), 2)
+        
+        # Add bounding boxes if detection exists
+        results = model.infer(frame)[0]
+        detections = sv.Detections.from_inference(results)
+        mask = detections.class_id == 2
+        detections = detections[mask]
+        label_annotator = sv.LabelAnnotator()
+        bounding_box_annotator = sv.BoundingBoxAnnotator()
+        annotated_frame = bounding_box_annotator.annotate(scene=annotated_frame, detections=detections)
+        annotated_frame = label_annotator.annotate(scene=annotated_frame, detections=detections)
+
+        # Save the annotated and resized frame
         output_path = Path(app.static_folder) / 'current-view.png'
-        cv2.imwrite(str(output_path), resized_frame, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+        cv2.imwrite(str(output_path), annotated_frame, [cv2.IMWRITE_PNG_COMPRESSION, 9])
         send_event("CURRENT_VIEW_SAVED")
         return "Frame saved successfully", 200
     except Exception as e:
@@ -356,11 +381,6 @@ def release_camera():
 def process_video():
     global cap, model, config, camera_sleeping, recording
 
-    RECT_LEFT = config['rectangle']['left']
-    RECT_RIGHT = config['rectangle']['right']
-    RECT_TOP = config['rectangle']['top']
-    RECT_BOTTOM = config['rectangle']['bottom']
-
     prev_ball_x = None
     crossed_left_to_right = False
     crossed_right_to_left = False
@@ -405,21 +425,34 @@ def process_video():
             time.sleep(1)
             continue
 
-        # Enqueue the frame for recording only if recording is active
+        # Enqueue the raw frame for recording only if recording is active
         if recording:
             try:
                 frame_queue.put(frame, timeout=1)
             except queue.Full:
                 print("Frame queue is full. Dropping frame.")
 
+        # Perform inference on the frame
         results = model.infer(frame)[0]
         detections = sv.Detections.from_inference(results)
         mask = detections.class_id == 2
         detections = detections[mask]
         
-        annotated_frame = bounding_box_annotator.annotate(scene=frame.copy(), detections=detections)
+        # Annotate frame for display
+        annotated_frame = frame.copy()
+        annotated_frame = bounding_box_annotator.annotate(scene=annotated_frame, detections=detections)
         annotated_frame = label_annotator.annotate(scene=annotated_frame, detections=detections)
-        cv2.rectangle(annotated_frame, (RECT_LEFT, RECT_TOP), (RECT_RIGHT, RECT_BOTTOM), (0, 0, 255), 2)
+
+        # Dynamically calculate the rectangle's position at the center
+        height, width = frame.shape[:2]
+        rect_width = 40  # Define the width of the rectangle
+        rect_height = 230  # Define the height of the rectangle
+        rect_left = (width - rect_width) // 2
+        rect_top = (height - rect_height) // 2
+        rect_right = rect_left + rect_width
+        rect_bottom = rect_top + rect_height
+
+        cv2.rectangle(annotated_frame, (rect_left, rect_top), (rect_right, rect_bottom), (0, 0, 255), 2)
 
         if len(detections) > 0:
             global last_ball_detection
@@ -428,12 +461,12 @@ def process_video():
             ball_x = detections.xyxy[0][0]
 
             if prev_ball_x is not None:
-                if prev_ball_x < RECT_LEFT < ball_x and not crossed_left_to_right:
+                if prev_ball_x < rect_left < ball_x and not crossed_left_to_right:
                     send_event("CROSS_LTR", "LEFT TO RIGHT")
                     crossed_left_to_right = True
                     crossed_right_to_left = False
 
-                elif prev_ball_x > RECT_RIGHT > ball_x and not crossed_right_to_left:
+                elif prev_ball_x > rect_right > ball_x and not crossed_right_to_left:
                     send_event("CROSS_RTL", "RIGHT TO LEFT")
                     crossed_right_to_left = True
                     crossed_left_to_right = False
@@ -443,6 +476,9 @@ def process_video():
             if not first_ball_detected:
                 send_event("FIRST_BALL")
                 first_ball_detected = True
+
+        # Optionally, display the annotated_frame if you have a display window
+        # cv2.imshow('Annotated Frame', annotated_frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break

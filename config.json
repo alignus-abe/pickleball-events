@@ -3,12 +3,6 @@
         "id": "pickleball-vision/1",
         "api_key": "NaHUxOSMxQUvgg9tfhcE"
     },
-    "rectangle": {
-        "left": 1050,
-        "right": 1140,
-        "top": 0,
-        "bottom": 1080
-    },
     "video_source": "0",
     "webhook": {
         "BALL_CROSSED": "http://court0.home:8321/api/webhook/ballcrossed",
