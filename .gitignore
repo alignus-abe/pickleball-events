@@ -6,6 +6,9 @@ __pycache__/
 # Recordings
 recordings/
 
+# Static
+static/
+
 # Hakuna Matata
 .DS_Store
 

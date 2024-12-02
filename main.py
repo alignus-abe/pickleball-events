@@ -152,13 +152,16 @@ def start_new_recording(num_minutes):
         # Wait briefly to ensure recording starts
         time.sleep(0.5)
 
-        return {"status": "success", "message": "Recording started"}, 200
+        return {"status": "success", "message": f"Recording started for {num_minutes} minutes"}, 200
     except Exception as e:
         return {"status": "error", "message": str(e)}, 500
 
 @app.route('/sleep-camera')
 def sleep_camera():
     global camera_sleeping, wake_timer
+
+    if camera_sleeping:
+        return {"status": "error", "message": "Camera is already asleep"}, 400
 
     try:
         camera_sleeping = True
@@ -177,6 +180,9 @@ def sleep_camera():
 def wake_camera(num_minutes=None):
     global camera_sleeping, wake_timer, last_ball_detection
     
+    if not camera_sleeping:
+        return {"status": "error", "message": "Camera is already awake"}, 400
+
     try:
         # First attempt to initialize the camera
         try:
@@ -202,10 +208,17 @@ def wake_camera(num_minutes=None):
         send_event("WAKE")
         return {
             "status": "success", 
-            "message": f"Camera awakened{f' for {num_minutes} minutes' if num_minutes else ' indefinitely'}"
+            "message": f"Camera awakened{' for ' + str(num_minutes) + ' minutes' if num_minutes else ' indefinitely'}"
         }, 200
     except Exception as e:
         return {"status": "error", "message": str(e)}, 500
+
+@app.route('/status', methods=['GET'])
+def status():
+    return jsonify({
+        "camera_sleeping": camera_sleeping,
+        "recording": recording
+    }), 200
 
 def load_config(config_path: str = 'config.json') -> Dict[str, Any]:
     try:
@@ -400,8 +413,19 @@ def process_video():
             new_height = int(height * (new_width / width))
             resized_frame = cv2.resize(frame, (new_width, new_height))
             
+            # Draw rectangle on initial frame
+            rect_width = 40
+            rect_height = 230
+            rect_left = (new_width - rect_width) // 2
+            rect_top = (new_height - rect_height) // 2
+            rect_right = rect_left + rect_width
+            rect_bottom = rect_top + rect_height
+
+            annotated_frame = resized_frame.copy()
+            cv2.rectangle(annotated_frame, (rect_left, rect_top), (rect_right, rect_bottom), (0, 0, 255), 2)
+            
             output_path = Path(app.static_folder) / 'current-view.png'
-            cv2.imwrite(str(output_path), resized_frame, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+            cv2.imwrite(str(output_path), annotated_frame, [cv2.IMWRITE_PNG_COMPRESSION, 9])
         except Exception as e:
             print(f"Error saving initial frame: {e}")
 
