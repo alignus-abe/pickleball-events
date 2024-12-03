@@ -45,7 +45,8 @@ VALID_EVENTS = {
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    events = list(event_list)
+    return render_template('index.html', initial_events=events)
 
 @app.route('/events')
 def events():

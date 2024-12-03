@@ -44,6 +44,29 @@
         const eventsDiv = document.getElementById('events');
         const eventSource = new EventSource('/events');
 
+        // Function to display events
+        function displayEvents(events) {
+            eventsDiv.innerHTML = ''; // Clear current events
+            events.slice().reverse().forEach(data => {
+                const eventElement = document.createElement('div');
+                eventElement.className = 'event';
+                eventElement.innerHTML = `
+                    <strong>Event:</strong> ${data.event}<br>
+                    <strong>Message:</strong> ${data.message}<br>
+                    ${data.direction ? `<strong>Direction:</strong> ${data.direction}<br>` : ''}
+                    <strong>Timestamp:</strong> ${data.timestamp}
+                `;
+                eventsDiv.appendChild(eventElement);
+            });
+        }
+
+        // Load initial events when page loads
+        fetch('/get-events')
+            .then(resp => resp.json())
+            .then(events => displayEvents(events))
+            .catch(error => console.error('Error fetching events:', error));
+
+        // Handle new events from SSE
         eventSource.onmessage = function(event) {
             const data = JSON.parse(event.data);
             
@@ -68,25 +91,10 @@
                         const img = document.getElementById('current-view');
                         img.src = '/static/current-view.png?t=' + new Date().getTime();
                         
-                        // Fetch the array of events and display them
+                        // Refresh events list
                         fetch('/get-events')
                             .then(resp => resp.json())
-                            .then(events => {
-                                // Clear current events display
-                                eventsDiv.innerHTML = '';
-                                // Display events
-                                events.slice().reverse().forEach(data => {
-                                    const eventElement = document.createElement('div');
-                                    eventElement.className = 'event';
-                                    eventElement.innerHTML = `
-                                        <strong>Event:</strong> ${data.event}<br>
-                                        <strong>Message:</strong> ${data.message}<br>
-                                        ${data.direction ? `<strong>Direction:</strong> ${data.direction}<br>` : ''}
-                                        <strong>Timestamp:</strong> ${data.timestamp}
-                                    `;
-                                    eventsDiv.appendChild(eventElement);
-                                });
-                            })
+                            .then(events => displayEvents(events))
                             .catch(error => console.error('Error fetching events:', error));
                     }
                 })
