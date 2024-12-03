@@ -277,6 +277,7 @@ def record_video(duration_minutes):
     os.makedirs("recordings", exist_ok=True)
 
     try:
+        send_event("RECORDING_STARTED")
         if cap is None or not cap.isOpened():
             raise RuntimeError("Main camera not available")
 
@@ -304,7 +305,6 @@ def record_video(duration_minutes):
         if elapsed_time < expected_time:
             time.sleep(expected_time - elapsed_time)
 
-        send_event("RECORDING_STARTED")
         return output_path
 
     except Exception as e:
