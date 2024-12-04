@@ -507,27 +507,26 @@ def process_video():
             global last_ball_detection
             last_ball_detection = datetime.now()
 
-            ball_x = detections.xyxy[0][0]
+            # Get ball position (center point)
+            ball_bbox = detections.xyxy[0]  # Get first detected ball's bounding box
+            ball_x = (ball_bbox[0] + ball_bbox[2]) / 2  # Calculate center x-coordinate
 
+            # Check for boundary crossings if we have a previous position
             if prev_ball_x is not None:
-                if prev_ball_x < rect_left < ball_x and not crossed_left_to_right:
-                    send_event("CROSS_LTR", "LEFT TO RIGHT")
-                    crossed_left_to_right = True
-                    crossed_right_to_left = False
-
-                elif prev_ball_x > rect_right > ball_x and not crossed_right_to_left:
+                # Ball crosses left boundary -> Right to Left movement
+                if prev_ball_x > rect_left > ball_x:
                     send_event("CROSS_RTL", "RIGHT TO LEFT")
-                    crossed_right_to_left = True
-                    crossed_left_to_right = False
+                
+                # Ball crosses right boundary -> Left to Right movement
+                elif prev_ball_x < rect_right < ball_x:
+                    send_event("CROSS_LTR", "LEFT TO RIGHT")
 
+            # Update previous ball position
             prev_ball_x = ball_x
 
             if not first_ball_detected:
                 send_event("FIRST_BALL")
                 first_ball_detected = True
-
-        # Optionally, display the annotated_frame if you have a display window
-        # cv2.imshow('Annotated Frame', annotated_frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
