@@ -5,16 +5,81 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
+            margin: 0;
             padding: 20px;
+            display: flex;
+            height: 100vh;
+            box-sizing: border-box;
+            background-color: #f9f9f9;
+        }
+        /* Container for left and right sections */
+        .container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+        /* Left section styling */
+        .left-section {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            margin-right: 20px;
+        }
+        #camera-view {
+            margin-bottom: 20px;
+        }
+        #current-view {
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            max-width: 100%;
+            height: auto;
+        }
+        #controls {
+            margin-bottom: 20px;
+            border: 1px solid #ccc;
+            padding: 15px;
+            border-radius: 4px;
+            background-color: #fafafa;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .control-group input {
+            padding: 5px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .control-group button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 5px;
+            width: 100%;
+        }
+        #status {
+            padding: 10px;
+            border: 1px solid #4caf50;
+            background-color: #dff0d8;
+            border-radius: 4px;
+        }
+        /* Right section styling */
+        .right-section {
+            flex: 3;
+            display: flex;
+            flex-direction: column;
         }
         #events {
-            margin-top: 20px;
+            flex: 1;
             border: 1px solid #ccc;
             padding: 10px;
-            height: 400px;
             overflow-y: auto;
+            background-color: #fff;
+            border-radius: 4px;
         }
         .event {
             padding: 10px;
@@ -22,27 +87,69 @@
             background-color: #f0f0f0;
             border-radius: 4px;
         }
-        #camera-view {
-            margin: 20px 0;
-        }
-        #current-view {
-            border: 1px solid #ccc;
-            border-radius: 4px;
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column;
+            }
+            .container {
+                flex-direction: column;
+            }
+            .left-section {
+                margin-right: 0;
+                margin-bottom: 20px;
+            }
         }
     </style>
 </head>
 <body>
     <h1>Pickleball Vision</h1>
-    <div id="camera-view">
-        <h2>Current View</h2>
-        <img id="current-view" src="/static/current-view.png" alt="Current camera view" style="max-width: 100%;">
-        <button onclick="saveCurrentView()">Save Current View</button>
+    <div class="container">
+        <!-- Left Section: Camera View, Controls, Status -->
+        <div class="left-section">
+            <div id="camera-view">
+                <h2>Current View</h2>
+                <img id="current-view" src="/static/current-view.png" alt="Current camera view">
+                <button onclick="saveCurrentView()">Save Current View</button>
+            </div>
+            <div id="controls">
+                <h2>Controls</h2>
+                
+                <div class="control-group">
+                    <button onclick="sleepCamera()">Sleep</button>
+                </div>
+                
+                <div class="control-group">
+                    <label for="wake-minutes">Wake (minutes):</label>
+                    <input type="number" id="wake-minutes" min="1" placeholder="Enter duration in minutes">
+                    <button onclick="wakeCamera()">Wake</button>
+                </div>
+                
+                <div class="control-group">
+                    <label for="record-minutes">Record (minutes):</label>
+                    <input type="number" id="record-minutes" min="1" placeholder="Enter duration in minutes">
+                    <button onclick="startRecording()">Record</button>
+                </div>
+            </div>
+            <div id="status">
+                <h2>System Status</h2>
+                <p><strong>Camera State:</strong> <span id="camera-state">Unknown</span></p>
+                <p><strong>Recording:</strong> <span id="recording-state">No</span></p>
+            </div>
+        </div>
+        
+        <!-- Right Section: Events -->
+        <div class="right-section">
+            <h2>Events</h2>
+            <div id="events"></div>
+        </div>
     </div>
-    <div id="events"></div>
 
     <script>
         const eventsDiv = document.getElementById('events');
         const eventSource = new EventSource('/events');
+        const cameraStateSpan = document.getElementById('camera-state');
+        const recordingStateSpan = document.getElementById('recording-state');
 
         // Function to display events
         function displayEvents(events) {
@@ -60,11 +167,26 @@
             });
         }
 
-        // Load initial events when page loads
-        fetch('/get-events')
-            .then(resp => resp.json())
-            .then(events => displayEvents(events))
-            .catch(error => console.error('Error fetching events:', error));
+        // Function to update system status
+        function updateStatus() {
+            fetch('/status')
+                .then(resp => resp.json())
+                .then(status => {
+                    cameraStateSpan.textContent = status.camera_sleeping ? 'Asleep' : 'Awake';
+                    recordingStateSpan.textContent = status.recording ? 'Yes' : 'No';
+                })
+                .catch(error => console.error('Error fetching status:', error));
+        }
+
+        // Load initial events and status when page loads
+        window.onload = function() {
+            fetch('/get-events')
+                .then(resp => resp.json())
+                .then(events => displayEvents(events))
+                .catch(error => console.error('Error fetching events:', error));
+            
+            updateStatus();
+        };
 
         // Handle new events from SSE
         eventSource.onmessage = function(event) {
@@ -82,6 +204,11 @@
                 <strong>Timestamp:</strong> ${data.timestamp}
             `;
             eventsDiv.insertBefore(eventElement, eventsDiv.firstChild);
+
+            // Refresh status on relevant events
+            if (["SLEEP", "WAKE", "RECORDING_STARTED", "SYSTEM_STOP"].includes(data.event)) {
+                updateStatus();
+            }
         };
 
         function saveCurrentView() {
@@ -100,6 +227,65 @@
                 })
                 .catch(error => console.error('Error saving view:', error));
         }
+
+        function sleepCamera() {
+            fetch('/sleep-camera')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === "success") {
+                        alert("Camera has been put to sleep.");
+                        updateStatus();
+                    } else {
+                        alert("Error: " + data.message);
+                    }
+                })
+                .catch(error => console.error('Error putting camera to sleep:', error));
+        }
+
+        function wakeCamera() {
+            const minutesInput = document.getElementById('wake-minutes').value;
+            let url = '/wake-camera';
+            if (minutesInput && minutesInput > 0) {
+                url += `/${minutesInput}`;
+            }
+
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === "success") {
+                        alert("Camera has been awakened.");
+                        updateStatus();
+                    } else {
+                        alert("Error: " + data.message);
+                    }
+                })
+                .catch(error => console.error('Error waking camera:', error));
+        }
+
+        function startRecording() {
+            const minutesInput = document.getElementById('record-minutes').value;
+            if (!minutesInput || minutesInput <= 0) {
+                alert("Please enter a valid number of minutes for recording.");
+                return;
+            }
+
+            const url = `/start-new-recording/${minutesInput}`;
+
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === "success") {
+                        alert(`Recording started for ${minutesInput} minutes.`);
+                        updateStatus();
+                    } else {
+                        alert("Error: " + data.message);
+                    }
+                })
+                .catch(error => console.error('Error starting recording:', error));
+        }
+
+        // Optionally, refresh status periodically (e.g., every 5 seconds)
+        setInterval(updateStatus, 5000);
     </script>
 </body>
 </html> 

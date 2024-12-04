@@ -20,6 +20,7 @@ app = Flask(__name__, static_folder='static', static_url_path='/static')
 event_queue = queue.Queue()
 event_list = deque(maxlen=500)
 frame_queue = queue.Queue(maxsize=1000)
+stop_recording_event = threading.Event()
 
 config = None
 cap = None
@@ -40,8 +41,13 @@ VALID_EVENTS = {
     "CROSS_RTL": "BALL CROSSED RIGHT TO LEFT",
     "SYSTEM_STOP": "SYSTEM STOPPED",
     "CURRENT_VIEW_SAVED": "SAVED CURRENT VIEW",
-    "RECORDING_STARTED": "RECORDING STARTED"
+    "RECORDING_STARTED": "RECORDING STARTED",
+    "RECORDING_COMPLETED": "RECORDING COMPLETED",
+    "RECORDING_STOPPED": "RECORDING STOPPED"
 }
+
+# Global lock for camera access
+cap_lock = threading.Lock()
 
 @app.route('/')
 def index():
@@ -77,7 +83,9 @@ def save_current_view():
     if not cap:
         return "Camera not initialized", 500
         
-    ret, frame = cap.read()
+    ret, frame = None, None
+    with cap_lock:
+        ret, frame = cap.read()
     if not ret:
         return "Failed to capture frame", 500
         
@@ -128,7 +136,7 @@ def serve_recording(filename):
 
 @app.route('/start-new-recording/<int:num_minutes>')
 def start_new_recording(num_minutes):
-    global recording_thread, cap, frame_queue
+    global recording_thread, cap, frame_queue, recording
 
     if num_minutes <= 0:
         return {"status": "error", "message": "Recording duration must be positive"}, 400
@@ -137,12 +145,19 @@ def start_new_recording(num_minutes):
         return {"status": "error", "message": "Camera not available"}, 500
 
     try:
-        stop_current_recording()
+        # If a recording is already in progress, stop it gracefully
+        if recording and recording_thread:
+            stop_recording_event.set()  # Signal the recording thread to stop
+            recording_thread.join()      # Wait for the thread to finish
 
         # Clear the frame_queue before starting a new recording
         with frame_queue.mutex:
             frame_queue.queue.clear()
 
+        # Reset the stop event for the new recording
+        stop_recording_event.clear()
+
+        recording = True
         recording_thread = threading.Thread(
             target=record_video, 
             args=(num_minutes,),
@@ -153,6 +168,7 @@ def start_new_recording(num_minutes):
         # Wait briefly to ensure recording starts
         time.sleep(0.5)
 
+        send_event("RECORDING_STARTED")
         return {"status": "success", "message": f"Recording started for {num_minutes} minutes"}, 200
     except Exception as e:
         return {"status": "error", "message": str(e)}, 500
@@ -180,7 +196,7 @@ def sleep_camera():
 @app.route('/wake-camera/<int:num_minutes>', methods=['GET'])
 def wake_camera(num_minutes=None):
     global camera_sleeping, wake_timer, last_ball_detection
-    
+
     if not camera_sleeping:
         return {"status": "error", "message": "Camera is already awake"}, 400
 
@@ -243,7 +259,11 @@ def send_event(event_type: str, direction: str = None):
         return
         
     event_data = {
-        "event": "STATUS" if event_type in ["SYSTEM_START", "CAMERA_ACQUIRED", "FIRST_BALL", "SLEEP", "WAKE", "SYSTEM_STOP", "CURRENT_VIEW_SAVED", "RECORDING_STARTED"] else "BALL CROSSED",
+        "event": "STATUS" if event_type in [
+            "SYSTEM_START", "CAMERA_ACQUIRED", "FIRST_BALL", "SLEEP",
+            "WAKE", "SYSTEM_STOP", "CURRENT_VIEW_SAVED",
+            "RECORDING_STARTED", "RECORDING_COMPLETED", "RECORDING_STOPPED"
+        ] else "BALL CROSSED",
         "message": VALID_EVENTS[event_type],
         "direction": direction,
         "timestamp": str(datetime.now())
@@ -256,6 +276,7 @@ def send_event(event_type: str, direction: str = None):
     event_list.append(event_data)
 
     '''
+    # Webhook logic (commented out)
     if event_type in config['webhook']:
         webhook_url = config['webhook'][event_type]
     else:
@@ -267,66 +288,62 @@ def send_event(event_type: str, direction: str = None):
         print(f"Failed to send webhook: {e}")
     '''
 
-def record_video(duration_minutes):
+def record_video(num_minutes: int):
     global recording
-    recording = True
-    timestamp = datetime.now().strftime("%Y-%m-%d-%H%M-%S")
-    output_path = f"recordings/{timestamp}.mp4"
-    out = None
-
-    os.makedirs("recordings", exist_ok=True)
 
     try:
-        send_event("RECORDING_STARTED")
-        if cap is None or not cap.isOpened():
-            raise RuntimeError("Main camera not available")
+        start_time = datetime.now()
+        end_time = start_time + timedelta(minutes=num_minutes)
 
+        # Define the codec and create VideoWriter object for WebM
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        recordings_dir = Path('recordings')
+        recordings_dir.mkdir(exist_ok=True)
+        output_filename = recordings_dir / f"recording_{timestamp}.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = int(cap.get(cv2.CAP_PROP_FPS))
-        total_frames = fps * duration_minutes * 60
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
+        total_frames = fps * num_minutes * 60
+        out = cv2.VideoWriter(str(output_filename), fourcc, fps, (frame_width, frame_height))
 
         frame_count = 0
-        start_time = time.time()
 
-        while recording and frame_count < total_frames:
-            try:
+        if not out.isOpened():
+            send_event("RECORDING_STOPPED")  # Emit stopped event due to failure
+            print("Failed to initialize VideoWriter")
+            recording = False
+            return
+
+        while recording and frame_count < total_frames and datetime.now() < end_time and not stop_recording_event.is_set():
+            if not frame_queue.empty():
                 frame = frame_queue.get(timeout=1)
                 out.write(frame)
                 frame_count += 1
-            except queue.Empty:
-                print("No frames available for recording.")
-                continue
+            else:
+                time.sleep(0.1)  # Adjust sleep time
 
-        elapsed_time = time.time() - start_time
-        expected_time = duration_minutes * 60
-        if elapsed_time < expected_time:
-            time.sleep(expected_time - elapsed_time)
-
-        return output_path
+        # Determine if recording completed naturally or was stopped
+        if datetime.now() >= end_time and not stop_recording_event.is_set():
+            send_event("RECORDING_COMPLETED")
+        elif stop_recording_event.is_set():
+            send_event("RECORDING_STOPPED")
 
     except Exception as e:
-        print(f"Recording error: {str(e)}")
-        recording = False
-        if out is not None:
-            out.release()
-        if os.path.exists(output_path):
-            os.remove(output_path)
-        raise e
-    
+        print(f"Error during recording: {e}")
     finally:
         recording = False
-        if out is not None:
-            out.release()
+        out.release()
+        stop_recording_event.clear()
 
 def stop_current_recording():
     global recording, recording_thread
     if recording and recording_thread:
-        recording = False
-        recording_thread.join()
+        stop_recording_event.set()      # Signal the recording thread to stop
+        recording_thread.join()         # Wait for the thread to finish
         recording_thread = None
+        recording = False
+        stop_recording_event.clear()    # Reset the event for future recordings
 
 def wake_timeout(duration_minutes):
     global camera_sleeping, last_ball_detection
@@ -334,7 +351,8 @@ def wake_timeout(duration_minutes):
     if last_ball_detection is None or \
        (datetime.now() - last_ball_detection).total_seconds() > duration_minutes * 60:
         # No ball detected within the timeout period
-        camera_sleeping = True
+        with cap_lock:
+            camera_sleeping = True
         send_event("SLEEP")
     else:
         # Ball was detected, cancel the timer and stay awake
@@ -352,22 +370,23 @@ def initialize_camera():
 
     for attempt in range(max_retries):
         try:
-            cap = cv2.VideoCapture(video_source)
-            if not cap.isOpened():
-                if attempt < max_retries - 1:
-                    print(f"Camera not available, attempt {attempt + 1}/{max_retries}. Retrying...")
-                    time.sleep(retry_delay)
-                    continue
-                raise RuntimeError("Camera not available after maximum retry attempts")
+            with cap_lock:
+                cap = cv2.VideoCapture(video_source)
+                if not cap.isOpened():
+                    if attempt < max_retries - 1:
+                        print(f"Camera not available, attempt {attempt + 1}/{max_retries}. Retrying...")
+                        time.sleep(retry_delay)
+                        continue
+                    raise RuntimeError("Camera not available after maximum retry attempts")
 
-            # Configure camera settings
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-            
-            # Verify camera is working by reading a test frame
-            ret, test_frame = cap.read()
-            if not ret:
-                raise RuntimeError("Camera opened but failed to read test frame")
+                # Configure camera settings
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+                
+                # Verify camera is working by reading a test frame
+                ret, test_frame = cap.read()
+                if not ret:
+                    raise RuntimeError("Camera opened but failed to read test frame")
 
             print("Camera initialized successfully.")
             return True
@@ -377,16 +396,18 @@ def initialize_camera():
                 print(f"Failed to initialize camera (attempt {attempt + 1}/{max_retries}): {e}")
                 time.sleep(retry_delay)
                 continue
-            cap = None
+            with cap_lock:
+                cap = None
             raise RuntimeError(f"Failed to initialize camera after {max_retries} attempts: {e}")
 
 def release_camera():
     global cap
     try:
-        if cap is not None:
-            if cap.isOpened():
-                cap.release()
-            cap = None
+        with cap_lock:
+            if cap is not None:
+                if cap.isOpened():
+                    cap.release()
+                cap = None
         cv2.destroyAllWindows()
     except Exception as e:
         print(f"Error during camera release: {e}")
@@ -406,7 +427,8 @@ def process_video():
     send_event("CAMERA_ACQUIRED")
 
     # Save initial frame
-    ret, frame = cap.read()
+    with cap_lock:
+        ret, frame = cap.read()
     if ret:
         try:
             height, width = frame.shape[:2]
@@ -435,15 +457,17 @@ def process_video():
             time.sleep(0.1)
             continue
         
-        if cap is None or not cap.isOpened():
-            try:
-                initialize_camera()
-            except RuntimeError as e:
-                print(f"Failed to initialize camera: {e}")
-                time.sleep(1)
-                continue
-                
-        ret, frame = cap.read()
+        with cap_lock:
+            if cap is None or not cap.isOpened():
+                try:
+                    initialize_camera()
+                except RuntimeError as e:
+                    print(f"Failed to initialize camera: {e}")
+                    time.sleep(1)
+                    continue
+
+            ret, frame = cap.read()
+
         if not ret:
             print("Failed to read frame")
             release_camera()
@@ -554,6 +578,10 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         print("Shutting down servers...")
+        if recording and recording_thread:
+            stop_current_recording()
+        release_camera()
+        os._exit(0)
 
 if __name__ == "__main__":
     main()
