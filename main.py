@@ -163,7 +163,7 @@ def record_video(num_minutes: int):
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = max(int(cap.get(cv2.CAP_PROP_FPS)), 60)
+        fps = max(int(cap.get(cv2.CAP_PROP_FPS)), 30)
         total_frames = fps * num_minutes * 60
         out = cv2.VideoWriter(str(output_filename), fourcc, fps, (frame_width, frame_height))
 
@@ -251,15 +251,15 @@ def main():
     video_source = int(config['video_source']) if config['video_source'].isdigit() else config['video_source']
     cap = cv2.VideoCapture(video_source)
     
-    video_settings = config.get('video_settings', {})
-    resolution_width = video_settings.get('resolution_width', 1920)
-    resolution_height = video_settings.get('resolution_height', 1080)
-    fps = video_settings.get('fps', 60)
+    # Set codec to MJPG for better high-resolution support
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
+    
+    # Force 1920x1080 resolution and 60fps regardless of config settings
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+    cap.set(cv2.CAP_PROP_FPS, 60)
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution_width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution_height)
-    cap.set(cv2.CAP_PROP_FPS, fps)
-
+    # Verify the actual settings
     actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     actual_fps = int(cap.get(cv2.CAP_PROP_FPS))
@@ -269,6 +269,12 @@ def main():
     if not cap.isOpened():
         logging.critical(f"Failed to open video source: {video_source}")
         raise RuntimeError(f"Failed to open video source: {video_source}")
+
+    if actual_width != 1920 or actual_height != 1080:
+        logging.warning(f"Camera does not support 1920x1080. Current resolution: {actual_width}x{actual_height}")
+    
+    if actual_fps != 60:
+        logging.warning(f"Camera does not support 60fps. Current FPS: {actual_fps}")
 
     server_thread = threading.Thread(target=start_flask_server, args=(config['server_port'],))
     server_thread.daemon = True
