@@ -15,6 +15,7 @@ import os
 import argparse
 from typing import Dict, Any
 from collections import deque
+from ultralytics import YOLO
 
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 event_queue = queue.Queue()
@@ -104,14 +105,12 @@ def save_current_view():
         rect_right = rect_left + rect_width
         rect_bottom = rect_top + rect_height
 
-        # Annotate resized frame for display
         annotated_frame = resized_frame.copy()
         cv2.rectangle(annotated_frame, (rect_left, rect_top), (rect_right, rect_bottom), (0, 0, 255), 2)
         
-        # Add bounding boxes if detection exists
-        results = model.infer(frame)[0]
-        detections = sv.Detections.from_inference(results)
-        mask = detections.class_id == 2
+        results = model(frame)[0]
+        detections = sv.Detections.from_yolov8(results)
+        mask = detections.class_id == 0
         detections = detections[mask]
         label_annotator = sv.LabelAnnotator()
         bounding_box_annotator = sv.BoundingBoxAnnotator()
@@ -247,6 +246,14 @@ def load_config(config_path: str = 'config.json') -> Dict[str, Any]:
             return json.load(f)
     except json.JSONDecodeError:
         raise ValueError(f"Invalid JSON format in config file: {config_path}")
+
+def get_local_model(model_path: str = 'model.pt'):
+    """Load the local YOLOv8 model."""
+    try:
+        model = YOLO(model_path)
+        return model
+    except Exception as e:
+        raise RuntimeError(f"Failed to load YOLOv8 model: {e}")
 
 def start_flask_server(port: int):
     try:
@@ -481,10 +488,9 @@ def process_video():
             except queue.Full:
                 print("Frame queue is full. Dropping frame.")
 
-        # Perform inference on the frame
-        results = model.infer(frame)[0]
-        detections = sv.Detections.from_inference(results)
-        mask = detections.class_id == 2
+        results = model(frame)[0]
+        detections = sv.Detections.from_yolov8(results)
+        mask = detections.class_id == 0
         detections = detections[mask]
         
         # Annotate frame for display
@@ -549,7 +555,7 @@ def main():
 
     warnings.filterwarnings('ignore', message='Specified provider.*')
 
-    model = get_model(model_id=config['model']['id'], api_key=config['model']['api_key'])
+    model = get_local_model()
     video_source = int(config['video_source']) if config['video_source'].isdigit() else config['video_source']
     cap = cv2.VideoCapture(video_source)
 
