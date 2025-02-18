@@ -12,6 +12,15 @@ static/
 # Hakuna Matata
 .DS_Store
 
+#Training
+data/
+pickleball_detection/
+wandb/
+test.py
+train.py
+yolo11n.pt
+yolov8n.pt
+
 # C extensions
 *.so
 
